@@ -18,7 +18,8 @@ Local services marketplace for Mexico (plumbers, electricians, cleaning, and sim
 10. [Secrets management](#secrets-management)
 11. [Git workflow and commits](#git-workflow-and-commits)
 12. [Working method](#working-method)
-13. [Local setup](#local-setup)
+13. [Behavior specs (Gherkin)](#behavior-specs-gherkin)
+14. [Local setup](#local-setup)
 
 ## Purpose
 
@@ -187,10 +188,34 @@ Accessibility is built into `packages/ui`: accessible base components mean every
 For every phase:
 
 1. Concept: what is built and why, with discarded alternatives.
-2. Design: structure agreed before code.
-3. Small incremental steps with the reasoning for non-obvious choices.
-4. Verification: tests, Lighthouse, axe, and the OWASP checklist for that phase.
-5. Record: a short note in `docs/` with the decisions taken.
+2. Behavior: Gherkin scenarios for the phase (Phases 1 to 6, see below).
+3. Design: structure agreed before code.
+4. Small incremental steps with the reasoning for non-obvious choices.
+5. Verification: tests, Lighthouse, axe, and the OWASP checklist for that phase.
+6. Record: a short note in `docs/` with the decisions taken.
+
+## Behavior specs (Gherkin)
+
+Scenarios are written at the start of a phase, after the concept and before the design. They are the acceptance criteria that define when the phase is done.
+
+| Phase | Gherkin | Reason |
+|---|---|---|
+| 0. Foundations | No | Infrastructure with no user behavior; validated by green CI |
+| 1. Marketplace core | Yes | Registration, login, role permissions, search |
+| 2. WhatsApp and basic bot | Yes | Conversation flows read best as scenarios |
+| 3. Inbox and human handoff | Yes | The conversation state machine is where bugs appear |
+| 4. Monetization | Yes | Sign-up, plan change, failed payment, duplicate webhook |
+| 5. Automation and CRM | Partial | Business rules only, such as the 24-hour WhatsApp window |
+| 6. Mobile app | Partial | Reuses scenarios from earlier phases |
+| 7. Production and polish | No | Operations and audit |
+
+Conventions:
+
+- Files live in `docs/features/`, one `.feature` file per capability.
+- They are written in Spanish (`# language: es`) because they are internal working material and are not shared with clients. Everything else in the repository stays in English.
+- Technical values such as state names, fields, and routes keep their real code names, quoted inside the Spanish text, so scenarios stay linked to the tests.
+- Use Gherkin only for business behavior a non-technical person could read. Field-level validation belongs in unit tests.
+- Scenarios are executed in CI with a BDD runner (Cucumber or `playwright-bdd`, chosen in Phase 1), so they are verified, not only documented.
 
 ## Local setup
 
