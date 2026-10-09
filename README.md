@@ -192,7 +192,7 @@ For every phase:
 3. Design: structure agreed before code.
 4. Small incremental steps with the reasoning for non-obvious choices.
 5. Verification: tests, Lighthouse, axe, and the OWASP checklist for that phase.
-6. Record: a short note in `docs/` with the decisions taken.
+6. Record: the steps and decisions taken, documented in `docs/` (written in Spanish, see [docs/README.md](docs/README.md)).
 
 ## Behavior specs (Gherkin)
 
