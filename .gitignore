@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Environment files: real values never enter git; only .env.example is tracked
+.env
+.env.*
+!.env.example
+
+# Secrets and keys
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Build output and caches
+dist/
+build/
+out/
+.next/
+.turbo/
+.expo/
+coverage/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Infrastructure state (Terraform): can contain secrets in plain text
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Editors (shared settings stay tracked, personal state does not)
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Local tooling
+.atl/
