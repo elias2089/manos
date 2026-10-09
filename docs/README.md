@@ -10,6 +10,7 @@ Los documentos llevan un prefijo numérico: el orden es el de ejecución. Para r
 |---|---|
 | [01-github-repository-setup.md](01-github-repository-setup.md) | Seguridad y flujo de trabajo del repositorio en GitHub: visibilidad, PRs, escaneo de secretos, Dependabot, ruleset de `main` |
 | [02-repo-hygiene.md](02-repo-hygiene.md) | `.gitignore`, `.env.example`, `.editorconfig`, `.gitattributes` y `.nvmrc`: qué ignorar, cómo tratar secretos y cómo fijar formato y versión de Node |
+| [03-monorepo-setup.md](03-monorepo-setup.md) | Monorepo con pnpm y Turborepo: workspaces, lockfile, tareas con caché y TypeScript estricto |
 
 ## Cómo se mantiene
 

@@ -1,0 +1,21 @@
+{
+  "name": "manos",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local services marketplace for Mexico with a WhatsApp support bot",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": ">=9.15.9 <10"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test"
+  },
+  "devDependencies": {
+    "turbo": "2.11.7",
+    "typescript": "7.0.2"
+  }
+}
