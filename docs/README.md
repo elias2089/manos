@@ -12,6 +12,7 @@ Los documentos llevan un prefijo numérico: el orden es el de ejecución. Para r
 | [02-repo-hygiene.md](02-repo-hygiene.md) | `.gitignore`, `.env.example`, `.editorconfig`, `.gitattributes` y `.nvmrc`: qué ignorar, cómo tratar secretos y cómo fijar formato y versión de Node |
 | [03-monorepo-setup.md](03-monorepo-setup.md) | Monorepo con pnpm y Turborepo: workspaces, lockfile, tareas con caché y TypeScript estricto |
 | [04-code-quality.md](04-code-quality.md) | ESLint, Prettier, husky, lint-staged y commitlint: qué es cada herramienta, para qué sirve y cómo se comprueba |
+| [05-ci-and-secrets.md](05-ci-and-secrets.md) | GitHub Actions, gitleaks por Docker y Dependabot: CI seguro, escaneo de secretos y checks obligatorios |
 
 ## Cómo se mantiene
 

@@ -1,0 +1,32 @@
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: 'chore(deps)'
+    groups:
+      github-actions:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: 'chore(deps)'
+    groups:
+      dev-dependencies:
+        patterns: ['*']
+    # Major upgrades that are blocked by compatibility (see docs/04-code-quality.md):
+    # typescript-eslint does not support TypeScript 7 yet, and eslint-plugin-jsx-a11y
+    # does not support ESLint 10 yet. Remove these entries when that changes.
+    ignore:
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+      - dependency-name: eslint
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@eslint/js'
+        update-types: ['version-update:semver-major']
