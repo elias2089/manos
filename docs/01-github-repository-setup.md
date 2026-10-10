@@ -64,10 +64,99 @@ git branch -d docs/nombre-del-cambio    # con squash puede pedir -D
 **Beneficio.** Un historial de `main` con un commit limpio por PR, y el hábito de revisar tu propio cambio antes de fusionarlo.
 
 **Convenciones.**
-- Mensajes con Conventional Commits: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`.
+- Mensajes con Conventional Commits (explicados en detalle más abajo): `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`.
 - Un cambio lógico por commit, con sus pruebas y documentación.
 - Prefijo de la rama según el tipo de cambio (`docs/`, `feat/`, `fix/`, `chore/`).
 - `git add` con nombres de archivo, para no subir algo por accidente.
+
+### Conventional Commits, explicado
+
+**Qué es.** Una convención para escribir el título de cada commit con una estructura fija, de modo que un humano o una herramienta sepan **qué tipo de cambio** es sin abrir el código. Desde el PR C ([04](04-code-quality.md)), `commitlint` la comprueba en cada commit y rechaza los mensajes que no la cumplen.
+
+**Estructura.**
+```
+tipo(ámbito opcional)!: descripción corta
+
+Cuerpo opcional: el porqué del cambio, en párrafos cortos.
+
+Pie opcional: BREAKING CHANGE: ...
+```
+
+| Parte | Obligatoria | Significado |
+|---|---|---|
+| `tipo` | Sí | La clase de cambio (tabla de abajo). Siempre en minúsculas |
+| `(ámbito)` | No | La zona afectada, entre paréntesis: `feat(auth):`, `chore(deps):` |
+| `!` | No | Marca un **cambio incompatible** (que rompe lo que ya funcionaba): `feat!:` |
+| `:` y un espacio | Sí | Separador. Sin el espacio, el mensaje es inválido |
+| `descripción` | Sí | Qué hace el commit, en imperativo y en inglés (`add login`, no `added login`) |
+| cuerpo | No | Explica el **porqué**. Cada línea, máximo 100 caracteres |
+| pie | No | Metadatos, como `BREAKING CHANGE:` o referencias a issues |
+
+**Los 11 tipos que acepta nuestra configuración.** Se comprobó con `commitlint`: cualquier otro (por ejemplo `update:`) se rechaza con `type-enum`.
+
+| Tipo | Úsalo cuando... | Ejemplo | ¿Cambia el comportamiento del producto? |
+|---|---|---|---|
+| `feat` | Añades una **funcionalidad nueva** para el usuario | `feat(auth): add login with email` | Sí |
+| `fix` | **Corriges un error** | `fix: reject expired refresh tokens` | Sí |
+| `docs` | Cambias **solo documentación** (README, `docs/`, comentarios) | `docs: add GitHub repository setup guide` | No |
+| `style` | Cambias el **formato** sin tocar la lógica (espacios, comas, saltos de línea) | `style: apply prettier to the api package` | No |
+| `refactor` | **Reorganizas código** sin cambiar lo que hace ni arreglar un error | `refactor: extract price calculation to a function` | No |
+| `perf` | Haces que algo sea **más rápido o consuma menos** | `perf: cache the provider search` | No (mejora la velocidad) |
+| `test` | **Añades o corriges pruebas** | `test: cover the 24-hour WhatsApp window rule` | No |
+| `build` | Cambias el **sistema de compilación o las dependencias** | `build: bump turbo to 2.11.7` | No |
+| `ci` | Cambias la **integración continua** (workflows, scripts de CI) | `ci: add GitHub Actions workflow and gitleaks scanning` | No |
+| `chore` | **Mantenimiento** que no encaja en los demás: configuración, herramientas, limpieza | `chore: add PostgreSQL and Redis local services` | No |
+| `revert` | **Deshaces** un commit anterior | `revert: undo the login change` | Depende del commit deshecho |
+
+**Cómo elegir entre los más confundibles.**
+- **`feat` o `fix`:** ¿el usuario puede hacer algo que antes no podía? Es `feat`. ¿Algo que debía funcionar no funcionaba? Es `fix`.
+- **`refactor` o `style`:** `style` solo cambia el **aspecto** del código (formato); `refactor` cambia su **estructura**.
+- **`chore`, `build` o `ci`:** si es compilación o dependencias, `build`; si es el CI, `ci`; si es otra tarea de mantenimiento del proyecto, `chore`. En duda, `chore`.
+- **`docs`:** si además cambias código, usa el tipo del código y no `docs`. Un commit con **un solo propósito** lleva un solo tipo.
+
+**Ámbito (`scope`).** Es opcional y sirve para decir **dónde**: `feat(auth)`, `fix(bot)`, `chore(deps)`. En este proyecto lo usará Dependabot (`chore(deps): ...`). Sin ámbito, el mensaje sigue siendo válido.
+
+**Cambios incompatibles (`!` y `BREAKING CHANGE`).** Si un cambio obliga a quien usa el código a adaptarse, se marca con `!` después del tipo (`feat!: drop the v1 API`) o con un pie `BREAKING CHANGE: ...`. En versionado semántico (`mayor.menor.parche`), `feat` sube la versión **menor**, `fix` sube el **parche** y un cambio incompatible sube la **mayor**. Esa relación es parte del estándar; nosotros aún no generamos versiones automáticas.
+
+**Reglas que comprueba `commitlint` (verificadas).**
+
+| Mensaje | Resultado | Motivo |
+|---|---|---|
+| `feat: add login` | Válido | |
+| `feat(auth): add login` | Válido | Con ámbito |
+| `feat!: drop old api` | Válido | Cambio incompatible |
+| `feat: Add login` | **Rechazado** | `subject-case`: la descripción no puede empezar con mayúscula |
+| `feat: add login.` | **Rechazado** | `subject-full-stop`: no se termina con punto |
+| `FEAT: add login` | **Rechazado** | `type-case`: el tipo va en minúsculas |
+| `feat:add login` | **Rechazado** | Falta el espacio después de `:`, y no se reconoce la descripción |
+| `update: stuff` | **Rechazado** | `type-enum`: `update` no es un tipo permitido |
+| Título de más de 100 caracteres | **Rechazado** | `header-max-length` |
+| Línea del cuerpo de más de 100 caracteres | **Rechazado** | `body-max-line-length` |
+
+**Ejemplos reales de este repositorio**, con su tipo:
+
+| Commit | Tipo y por qué |
+|---|---|
+| `docs: add project README with scope, roadmap and quality standards` | `docs`: solo documentación |
+| `chore: add repo hygiene files and docs numbering` | `chore`: archivos de configuración del repositorio |
+| `chore: set up pnpm workspace, Turborepo and strict TypeScript base` | `chore`: estructura de herramientas, sin comportamiento de producto |
+| `chore: add ESLint, Prettier, husky and commitlint` | `chore`: herramientas de calidad |
+| `ci: add GitHub Actions workflow and gitleaks scanning` | `ci`: integración continua |
+| `chore: add PostgreSQL and Redis local services` | `chore`: entorno de desarrollo |
+
+A partir de la fase 1 aparecerán `feat` y `fix`, porque habrá funcionalidades de producto.
+
+**Por qué usarlo.**
+- **Historial legible:** se entiende de un vistazo qué hizo cada commit.
+- **Revisión más fácil:** el tipo anticipa qué esperar del cambio.
+- **Automatización posible:** permite generar un changelog (lista de cambios por versión) y calcular versiones sin escribirlas a mano.
+- **Portafolio:** un historial ordenado es lo primero que un cliente mira.
+
+**Cómo escribir un buen mensaje.**
+- Imperativo y en inglés: `add`, `fix`, `remove`, no `added` ni `adds`.
+- Descripción corta (menos de 100 caracteres) que diga **qué** hace el cambio.
+- Si hace falta explicar el **porqué**, va en el cuerpo. Con `git commit` se pasa un `-m` por párrafo para mantener las líneas cortas.
+- **Un propósito por commit.** Si necesitas escribir "y" para describirlo, probablemente son dos commits.
 
 **Cómo comprobar.**
 ```bash
