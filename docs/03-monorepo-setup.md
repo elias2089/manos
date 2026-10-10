@@ -126,6 +126,8 @@ La estrictez es de seguridad (OWASP A04, diseño inseguro): muchos errores de l�
 
 **TypeScript 7.0.2.** Fue tu decisión, y es la versión `latest` oficial en npm. La versión mayor 7 es reciente, así que antes de añadir Next.js, NestJS, Prisma o ESLint hay que comprobar que soportan TypeScript 7. Si alguno no lo hace, lo documentaremos y decidiremos entre bajar TypeScript o esperar. Verificamos que `tsc --showConfig` acepta este archivo sin errores.
 
+> **Corrección posterior (PR C, [04-code-quality.md](04-code-quality.md)).** Al añadir ESLint comprobamos la compatibilidad prometida arriba y resultó que `typescript-eslint` solo declara soporte para TypeScript `>=4.8.4 <6.1.0`. El proyecto bajó a **TypeScript 6.0.3**, y se subirá a 7 cuando `typescript-eslint` lo soporte. Este documento conserva la versión 7.0.2 en los pasos de abajo porque es lo que se hizo en el PR B; el estado actual es 6.0.3. `tsconfig.base.json` no cambió.
+
 ## 4. Qué hicimos
 
 | Archivo | Resultado |
@@ -158,7 +160,7 @@ Todo desde la raíz del repositorio.
 pnpm exec tsc --version
 pnpm exec turbo --version
 ```
-Esperado: `Version 7.0.2` y `2.11.7`.
+Esperado: `Version 7.0.2` y `2.11.7` con el estado del PR B. Desde el PR C, la versión de TypeScript es `6.0.3`.
 
 **b) La configuración de TypeScript es válida**
 ```bash
