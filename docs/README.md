@@ -13,6 +13,7 @@ Los documentos llevan un prefijo numérico: el orden es el de ejecución. Para r
 | [03-monorepo-setup.md](03-monorepo-setup.md) | Monorepo con pnpm y Turborepo: workspaces, lockfile, tareas con caché y TypeScript estricto |
 | [04-code-quality.md](04-code-quality.md) | ESLint, Prettier, husky, lint-staged y commitlint: qué es cada herramienta, para qué sirve y cómo se comprueba |
 | [05-ci-and-secrets.md](05-ci-and-secrets.md) | GitHub Actions, gitleaks por Docker y Dependabot: CI seguro, escaneo de secretos y checks obligatorios |
+| [06-local-services.md](06-local-services.md) | PostgreSQL 17 y Redis 8 con Docker Compose: configuración línea por línea, seguridad, verificación y trampas |
 
 ## Cómo se mantiene
 

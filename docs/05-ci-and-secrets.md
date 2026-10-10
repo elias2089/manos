@@ -218,7 +218,11 @@ Esperado: `usage: sh scripts/gitleaks.sh staged|history` y código `2`.
 2. Activa **Require status checks to pass**.
 3. Pulsa **Add checks** y añade `Quality` y `Secrets`. Si no aparecen, es que el workflow aún no se ha ejecutado.
 4. Guarda con **Save changes**.
-5. Verifica abriendo un PR de prueba con un fallo (por ejemplo, un archivo sin formato): el botón de fusionar debe quedar bloqueado hasta que el check pase.
+5. Verifica abriendo un PR de prueba con un fallo: el botón de fusionar debe quedar bloqueado hasta que el check pase.
+
+**Prueba que hicimos (PR #8, cerrado sin fusionar).** Un archivo sin formato no sirve para esto, porque el hook local de `lint-staged` lo arreglaría antes del commit y nunca llegaría al CI. Usamos un fallo que los hooks locales **no** detectan: en `package.json` se cambió la versión de `prettier` de `3.9.10` a `3.9.9` sin actualizar `pnpm-lock.yaml`. Los hooks dejaron pasar el commit, y en el CI `pnpm install --frozen-lockfile` falló y el job `Quality` quedó en rojo. Resultado comprobado con `gh pr view --json mergeStateStatus`: `BLOCKED`, y `gh pr merge --squash` fue rechazado. Nunca se usa `--admin`, que se saltaría la protección. Después: `gh pr close --delete-branch` y `git branch -D` de la rama local.
+
+Notas de la configuración final del ruleset `protect-main`: `required_status_checks` con `Quality` y `Secrets` (ambos de GitHub Actions), `strict_required_status_checks_policy: false` (no se exige la rama actualizada) y sin `bypass`. El ruleset permite los tres métodos de fusión, pero los ajustes del repositorio del paso 4 de este documento solo dejan squash, y ambos se aplican a la vez.
 
 ## 7. Trampas conocidas
 
