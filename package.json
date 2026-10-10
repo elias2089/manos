@@ -16,6 +16,9 @@
     "lint:root": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "services:up": "docker compose up -d --wait",
+    "services:down": "docker compose down",
+    "services:logs": "docker compose logs -f",
     "prepare": "husky"
   },
   "lint-staged": {

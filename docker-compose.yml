@@ -1,0 +1,60 @@
+# Local development services. Not meant for production.
+#
+# Start:  pnpm services:up      Stop:  pnpm services:down
+# Required variables live in .env (copy .env.example and fill in your own values).
+
+name: manos
+
+services:
+  postgres:
+    # Tag and digest: the digest makes the image immutable, the tag keeps it readable
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    restart: unless-stopped
+    environment:
+      # ":?" makes compose fail with this message when the variable is missing,
+      # instead of starting with a default password
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env (see .env.example)}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env (see .env.example)}
+    ports:
+      # Bound to localhost only: without 127.0.0.1, Docker exposes the port to the whole network
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # "$$" keeps the variable for the container's shell instead of being replaced by compose
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env (see .env.example)}
+    # The shell reads the password from the container environment, so it does not
+    # appear in the process arguments. noeviction: BullMQ must not lose queued jobs
+    # when memory is full. appendonly: keep data across restarts.
+    command:
+      - sh
+      - -c
+      - exec redis-server --requirepass "$$REDIS_PASSWORD" --maxmemory-policy noeviction --appendonly yes
+    ports:
+      - '127.0.0.1:6379:6379'
+    volumes:
+      - redis_data:/data
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # REDISCLI_AUTH passes the password to redis-cli without a command-line argument
+      test: ['CMD-SHELL', 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:

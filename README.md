@@ -219,4 +219,19 @@ Conventions:
 
 ## Local setup
 
-Prerequisites: Node 24, pnpm 9.15, Docker 28, Git 2.43. Setup instructions will be added in Phase 0, when the monorepo and Docker Compose services exist.
+Prerequisites: Node 24 (see `.nvmrc`), pnpm 9.15, Docker with Compose v2, Git 2.43.
+
+```bash
+pnpm install                 # installs dependencies and activates the git hooks
+cp .env.example .env         # then replace every "change-me" (openssl rand -hex 24)
+pnpm services:up             # starts PostgreSQL 17 and Redis 8 and waits until healthy
+```
+
+| Command | What it does |
+|---|---|
+| `pnpm services:down` | Stops the services; data is kept in Docker volumes |
+| `pnpm services:logs` | Follows the service logs |
+| `pnpm lint:root` / `pnpm format:check` | Lint and formatting checks |
+| `pnpm build` / `pnpm typecheck` / `pnpm test` | Run the task in every package through Turborepo |
+
+The git hooks need Docker running: the pre-commit hook scans staged files with gitleaks in a container. The services are for local development only. Step-by-step explanations of every setup decision are in [docs/](docs/README.md).
