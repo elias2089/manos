@@ -1,0 +1,10 @@
+node_modules/
+dist/
+build/
+.next/
+.turbo/
+coverage/
+pnpm-lock.yaml
+
+# Markdown tables are aligned by hand; formatting them creates noisy diffs
+*.md
