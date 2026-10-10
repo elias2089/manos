@@ -204,7 +204,7 @@ Declara los dos volúmenes con nombre. Sin esta declaración, Compose rechaza us
 | Archivo | Cambio |
 |---|---|
 | `package.json` | Scripts `services:up` (`docker compose up -d --wait`), `services:down` y `services:logs` |
-| `.github/dependabot.yml` | Nuevo ecosistema `docker-compose`: propone actualizar las imágenes (tag y digest) cada semana, agrupadas |
+| `.github/dependabot.yml` | Nuevo ecosistema `docker-compose`: propone actualizar las imágenes (tag y digest) cada semana, agrupadas. Más tarde se le añadió un `ignore` de versiones mayores de `postgres` y `redis` (ver 8) |
 | `.env.example` | Variables nuevas. **Lo editas tú** (ver 4.3) |
 | `README.md` | Sección "Local setup" con el arranque real |
 | `docs/05-ci-and-secrets.md` | Nota con el resultado de la prueba de checks obligatorios |
@@ -442,6 +442,13 @@ Esperado: `42` y `valor`. Limpia después con `docker compose exec postgres sh -
 - **`down -v` borra los datos sin preguntar.** No lo uses si no quieres empezar de cero.
 - **Los servicios son solo para desarrollo.** No usar este compose ni estas contraseñas en producción.
 - **Dependabot actualiza las imágenes del compose, pero no la imagen de `scripts/gitleaks.sh`.** Esa se cambia a mano (ver [05](05-ci-and-secrets.md)).
+- **Dependabot propone saltos de versión mayor de las bases de datos si no se le prohíbe.** Pasó en el PR #10 (`postgres` de `17-alpine` a `18-alpine`), abierto a los pocos minutos de añadir el ecosistema `docker-compose`. Se cerró sin fusionar y se añadió un `ignore` de versiones mayores de `postgres` y `redis` en `.github/dependabot.yml`. Motivos para no aceptar ese tipo de PR:
+  - **Los datos no se abren entre versiones mayores.** PostgreSQL no puede abrir un directorio de datos creado por otra versión mayor: cambiar de 17 a 18 exige una migración (`pg_upgrade` o volcado y restauración). Si se fusionara un PR así, tu volumen de desarrollo dejaría de arrancar.
+  - **Compatibilidad sin verificar.** Elegimos la 17 precisamente porque no comprobamos el soporte de la 18 en Prisma y en el resto del ecosistema. Con Redis pasa lo mismo con BullMQ y la licencia (ver 3.13).
+  - **Un PR no es el lugar para una decisión así.** Una versión mayor de base de datos se decide, se prueba y se documenta aparte.
+
+  Las versiones **menores y de parche** (por ejemplo `17.11` a `17.12`) siguen llegando como PR agrupado. Para subir de versión mayor de forma deliberada: verificar la compatibilidad, probar la migración sobre una copia, cambiar la etiqueta y el digest del compose a mano, y quitar o ajustar el `ignore`.
+  - **No verificado:** que Dependabot aplique el `ignore` de `update-types` a etiquetas de imágenes Docker como `17-alpine` (el comportamiento de `version-update:semver-major` con etiquetas con sufijo no lo comprobé). Cómo comprobarlo: tras fusionar este cambio, en Insights → Dependency graph → Dependabot debe aparecer sin errores de configuración, y en las semanas siguientes no debe reabrirse una propuesta de `postgres` 18 ni de `redis` 9. Si reaparece, hay que cambiar a la forma alternativa `versions: ['>=18']`.
 - **Docker debe estar corriendo.** También lo necesita el hook de gitleaks.
 - **WSL.** Los puertos en `127.0.0.1` se reenvían a Windows normalmente, pero si un cliente gráfico de Windows no conecta, es un asunto de red de WSL y no del compose.
 

@@ -132,11 +132,13 @@ Un script de shell, y no código directo dentro del hook y del workflow, porque 
 | Ecosistema | Qué actualiza |
 |---|---|
 | `github-actions` | Las acciones del workflow. Mantiene al día los SHA fijados |
+| `docker-compose` | Las imágenes de `docker-compose.yml` (etiqueta y digest). Se añadió en el PR E ([06](06-local-services.md)) |
 | `npm` | Las dependencias de `package.json` (funciona con pnpm) |
 
 - **`commit-message.prefix: chore(deps)`:** para que los PRs de Dependabot sigan Conventional Commits.
 - **`groups`:** un solo PR con todas las actualizaciones, en lugar de uno por paquete. Menos ruido.
 - **`ignore`:** bloquea las actualizaciones de versión **mayor** de `typescript`, `eslint` y `@eslint/js`. Sin eso, Dependabot propondría TypeScript 7 y ESLint 10, que hoy rompen la compatibilidad con `typescript-eslint` y `jsx-a11y` (ver [04](04-code-quality.md)). Cuando ese motivo desaparezca, hay que quitar esas entradas.
+- **`ignore` en `docker-compose`:** bloquea también las versiones **mayores** de `postgres` y `redis`. Se añadió después de que Dependabot abriera el PR #10 proponiendo PostgreSQL 18. El motivo está explicado en las trampas de [06](06-local-services.md).
 
 Esto es distinto de las **Dependabot security updates** activadas en el paso 3 de [01](01-github-repository-setup.md): aquéllas solo se disparan por vulnerabilidades; éstas son actualizaciones normales de versión.
 

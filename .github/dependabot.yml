@@ -20,6 +20,14 @@ updates:
     groups:
       docker-images:
         patterns: ['*']
+    # A major version of a database is never upgraded by an automatic PR: data volumes
+    # created by one major version cannot be opened by another without a migration, and
+    # compatibility with Prisma and BullMQ must be checked first (see docs/06-local-services.md).
+    ignore:
+      - dependency-name: postgres
+        update-types: ['version-update:semver-major']
+      - dependency-name: redis
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: npm
     directory: /
