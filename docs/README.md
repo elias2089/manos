@@ -15,6 +15,7 @@ Los documentos llevan un prefijo numérico: el orden es el de ejecución. Para r
 | [05-ci-and-secrets.md](05-ci-and-secrets.md) | GitHub Actions, gitleaks por Docker y Dependabot: CI seguro, escaneo de secretos y checks obligatorios |
 | [06-local-services.md](06-local-services.md) | PostgreSQL 17 y Redis 8 con Docker Compose: configuración línea por línea, seguridad, verificación y trampas |
 | [07-behavior-specs-phase-1.md](07-behavior-specs-phase-1.md) | Gherkin: teoría, convenciones, los 102 escenarios de la fase 1 (en [features/](features/)) y la tabla de supuestos que hay que aprobar |
+| [08-phase-1-technical-decisions.md](08-phase-1-technical-decisions.md) | Herramientas de la fase 1 (NestJS, Prisma, Zod, argon2, Mailpit, pino, Vitest, Cucumber...): qué es cada una, para qué se usa, su objetivo, un fragmento de código y qué queda sin verificar |
 
 ## Cómo se mantiene
 
