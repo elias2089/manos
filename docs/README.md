@@ -14,6 +14,7 @@ Los documentos llevan un prefijo numérico: el orden es el de ejecución. Para r
 | [04-code-quality.md](04-code-quality.md) | ESLint, Prettier, husky, lint-staged y commitlint: qué es cada herramienta, para qué sirve y cómo se comprueba |
 | [05-ci-and-secrets.md](05-ci-and-secrets.md) | GitHub Actions, gitleaks por Docker y Dependabot: CI seguro, escaneo de secretos y checks obligatorios |
 | [06-local-services.md](06-local-services.md) | PostgreSQL 17 y Redis 8 con Docker Compose: configuración línea por línea, seguridad, verificación y trampas |
+| [07-behavior-specs-phase-1.md](07-behavior-specs-phase-1.md) | Gherkin: teoría, convenciones, los 102 escenarios de la fase 1 (en [features/](features/)) y la tabla de supuestos que hay que aprobar |
 
 ## Cómo se mantiene
 

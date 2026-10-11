@@ -105,7 +105,7 @@ Phases are ordered by what blocks later work and by portfolio value.
 | Phase | Scope | Priority | What it teaches |
 |---|---|---|---|
 | 0. Foundations | Monorepo, strict TypeScript, linting, Docker Compose (Postgres, Redis), CI, Lighthouse CI, secret scanning | Critical | Monorepos, containers, CI |
-| 1. Marketplace core | Data model, auth, roles, profiles, catalog, search, i18n, About and Contact pages | Critical | Database design, authN/authZ, SSR |
+| 1. Marketplace core | Data model, own authentication (email verification, password recovery), roles, profiles, provider verification, catalog, search, i18n, About and Contact pages, local mail server | Critical | Database design, authN/authZ, SSR |
 | 2. WhatsApp and basic bot | Webhook, auto-replies, direct-contact button, lead qualification | High | Webhooks, idempotency, HMAC signatures, LLM tools |
 | 3. Inbox and human handoff | Real-time inbox, conversation states (bot, waiting for agent, human) | High | WebSockets, state machines |
 | 4. Monetization | Packages, subscriptions, payment webhooks, plan limits, CFDI invoices | High | Recurring payments, reconciliation |
