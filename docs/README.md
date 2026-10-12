@@ -17,6 +17,7 @@ Los documentos llevan un prefijo numérico: el orden es el de ejecución. Para r
 | [07-behavior-specs-phase-1.md](07-behavior-specs-phase-1.md) | Gherkin: teoría, convenciones, los 119 escenarios de la fase 1 (en [features/](features/)) y la tabla de supuestos que hay que aprobar |
 | [08-phase-1-technical-decisions.md](08-phase-1-technical-decisions.md) | Herramientas de la fase 1 (NestJS, Prisma, Zod, argon2, Mailpit, pino, Vitest, Cucumber...): qué es cada una, para qué se usa, su objetivo, un fragmento de código y qué queda sin verificar |
 | [09-phase-1-data-and-auth-design.md](09-phase-1-data-and-auth-design.md) | Diseño de la fase 1: modelo de datos con diagrama y tablas de ejemplo, tokens y sesiones, claves de Redis, CSRF, fechas en UTC y orden de los PRs |
+| [10-api-base.md](10-api-base.md) | Esqueleto de la API con NestJS 12: paquete, dependencias exactas, `tsconfig` para ESM con `nodenext`, configuración, registros, `Clock` y `/health` (en construcción) |
 
 ## Cómo se mantiene
 
