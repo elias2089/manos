@@ -673,7 +673,7 @@ apps/api/src/
 
 | PR | Contenido |
 |---|---|
-| 1 | API base: esqueleto, configuración, registros, `/health`, Vitest **y la prueba mínima que resuelve el riesgo de Cucumber** (ver 08) |
+| 1 | API base: esqueleto, configuración, registros (logs), `/health`, reloj inyectable y Vitest (ver 10). **La prueba mínima del riesgo de Cucumber se aplazó**: se resuelve antes del PR 3, como paso previo o como PR propio (ver 08) |
 | 2 | Prisma: esquema, primera migración, datos iniciales (categorías y las 16 alcaldías); **Mailpit** en el compose |
 | 3 | Registro, verificación, inicio de sesión, renovación y cierre de sesión; limitador de intentos y protección CSRF |
 | 4 | Recuperación de contraseña, perfil y cancelación de cuenta |
@@ -713,7 +713,7 @@ Cada PR lleva su documento (`10-…` en adelante) y deja en verde los escenarios
 | Bloqueo por cuenta usable para molestar a otra persona | Riesgo aceptado | Observar al implementar |
 | Cookie `refresh` con `Path=/v1/auth` | Decisión de diseño sin probar | PR 3 |
 | El AT no se puede revocar antes de 15 minutos | Riesgo aceptado | |
-| Cómo carga Cucumber TypeScript con decoradores | **Sin resolver** (ver 08) | PR 1 |
+| Cómo carga Cucumber TypeScript con decoradores | **Sin resolver**, aplazado desde el PR 1 (ver 08) | **Antes del PR 3** |
 | Escribir `Set-Cookie` con `Path` distinto de la petición para borrar cookies | Sin verificar | PR 3 |
 
 ## 13. Cómo verificar
