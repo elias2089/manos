@@ -2,7 +2,7 @@
 
 PR: `feat/api-base`. Archivos nuevos: `apps/api/`. Cambios en `pnpm-lock.yaml`.
 
-> **Estado: en construcción.** Este documento se completa paso a paso, en el mismo PR que el código. Cubre hasta el paso 9 (logs con redacción y su prueba). Las secciones de configuración, logs, `Clock`, `/health` y pruebas se añaden al cerrar cada paso.
+> **Estado: en construcción.** Este documento se completa paso a paso, en el mismo PR que el código. Cubre hasta el paso 10 (endpoint `/health`). Las secciones de configuración, logs, `Clock`, `/health` y pruebas se añaden al cerrar cada paso.
 
 ## 1. Objetivo
 
@@ -61,6 +61,12 @@ Crear la aplicación `apps/api` con NestJS 12: un esqueleto que compila, arranca
 | **`supertest`** | Hace peticiones HTTP a la aplicación sin abrir un puerto de verdad |
 | **Prueba frágil (flaky)** | La que pasa unas veces y falla otras sin cambiar el código |
 | **Falso positivo** | Prueba que pasa aunque el código esté roto |
+| **Endpoint** | Una dirección de la API más un método HTTP (`GET /health`) |
+| **Controlador (`@Controller`)** | Clase que recibe las peticiones de un grupo de rutas y devuelve la respuesta |
+| **Health check** | Ruta barata que dice "estoy vivo". La consulta el hosting, Docker o un balanceador cada pocos segundos para decidir si reiniciar la aplicación o enviarle tráfico |
+| **Liveness y readiness** | *Liveness*: el proceso responde. *Readiness*: además puede atender trabajo (base de datos y Redis conectados) |
+| **Prefijo global (`setGlobalPrefix`)** | Texto como `v1` que se antepone a todas las rutas. Llegará con el PR 3 |
+| **Prueba e2e (end-to-end)** | Hace una petición HTTP real a la aplicación en memoria y comprueba la respuesta completa |
 
 ## 3. Qué se hizo, paso a paso
 
@@ -790,6 +796,106 @@ describe('log redaction', () => {
 - Al quitar `'res.headers["set-cookie"]'`, falla solo la segunda, con `... not to contain 'secret-refresh-cookie'`.
 - Restauradas las líneas, vuelven las 18 pruebas a verde. Se repitió la ejecución 8 veces seguidas, sin fallos.
 
+### Paso 10. El endpoint `GET /health`
+
+`apps/api/src/health/health.controller.ts`:
+
+```ts
+import { Controller, Get } from '@nestjs/common';
+
+import { Clock } from '../common/clock.js';
+
+@Controller('health')
+export class HealthController {
+  constructor(private readonly clock: Clock) {}
+
+  @Get()
+  check() {
+    return { status: 'ok', time: this.clock.now().toISOString() };
+  }
+}
+```
+
+`apps/api/src/health/health.module.ts`:
+
+```ts
+import { Module } from '@nestjs/common';
+
+import { HealthController } from './health.controller.js';
+
+@Module({
+  controllers: [HealthController],
+})
+export class HealthModule {}
+```
+
+`apps/api/src/app.module.ts` importa `HealthModule` en su lista `imports`, después de `ClockModule`.
+
+`apps/api/src/health/health.controller.spec.ts`:
+
+```ts
+import type { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import request from 'supertest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { Clock } from '../common/clock.js';
+import { ClockModule } from '../common/clock.module.js';
+import { HealthModule } from './health.module.js';
+
+describe('GET /health', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [ClockModule, HealthModule],
+    })
+      .overrideProvider(Clock)
+      .useValue({ now: () => new Date('2026-01-01T10:00:00Z') })
+      .compile();
+
+    app = moduleRef.createNestApplication();
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('responds 200 with the status and the time from the clock', async () => {
+    const response = await request(app.getHttpServer()).get('/health').expect(200);
+
+    expect(response.body).toEqual({ status: 'ok', time: '2026-01-01T10:00:00.000Z' });
+  });
+
+  it('only answers GET', async () => {
+    await request(app.getHttpServer()).post('/health').expect(404);
+  });
+});
+```
+
+| Parte | Qué hace |
+|---|---|
+| `@Controller('health')` | Todas las rutas de la clase cuelgan de `/health` |
+| `constructor(private readonly clock: Clock)` | Nest inyecta el reloj. No hace falta importar `ClockModule` porque es global |
+| `import { Clock }` como valor | Nest necesita la clase real en tiempo de ejecución para saber qué inyectar |
+| `@Get()` | `GET /health` ejecuta `check()`. Un objeto devuelto se serializa a JSON con código 200 |
+| `.toISOString()` | Fecha en UTC con formato estándar, como exige 09 |
+| `.useValue({ now: () => ... })` | Sustituye el reloj por uno de hora fija para que la prueba dé siempre el mismo resultado |
+| `toEqual({...})` | Comprueba que el cuerpo es **exactamente** ese: si alguien añade un campo por accidente, la prueba lo detecta |
+| Prueba del `POST` | Confirma que la ruta no acepta otros métodos |
+
+**Decisiones de diseño.**
+
+- **`/health` sin versión.** Es un endpoint de infraestructura, no parte de la API de negocio. Cuando llegue el prefijo `v1`, la documentación de Nest permite excluir la ruta con `setGlobalPrefix('v1', { exclude: [...] })`.
+- **Solo *liveness*.** No hay base de datos ni Redis todavía. Las comprobaciones de *readiness* se añaden con Prisma y Redis.
+- **La respuesta no revela más de lo necesario.** Ni versión ni datos internos: un endpoint público no debe dar pistas a un atacante (OWASP A05). `time` demuestra que el reloj inyectado llega a un controlador.
+- **La prueba usa `HealthModule` y `ClockModule`, no `AppModule`.** `AppModule` lee el `.env` local y una prueba no debe depender de la máquina. A cambio, la prueba no detecta que se olvide importar `HealthModule` en `AppModule`: eso lo comprueba el `curl` real de la verificación.
+- **Reloj de prueba como objeto literal.** Solo hace falta una hora fija. Un segundo `FakeClock` duplicaría el de `clock.spec.ts` sin necesidad.
+- **Cada consulta a `/health` se registra en el log.** Cuando un hosting la consulte cada pocos segundos, convendrá excluirla (`exclude` de `nestjs-pino`). Se decide en la fase 7, cuando haya quien la consulte.
+
+**Pendiente: `X-Powered-By: Express`.** La respuesta lleva esa cabecera, que revela el framework. Se elimina con `helmet` (ver 08, sección 5.11), que añade además otras cabeceras de seguridad. No entra en este PR.
+
 ## 4. Alternativas descartadas
 
 | Alternativa | Por qué no |
@@ -818,6 +924,12 @@ describe('log redaction', () => {
 | Probar la redacción solo a mano con `curl` | No avisa si alguien la rompe después. Se automatizó con una prueba |
 | Copiar las rutas de redacción en la prueba | Podrían divergir de las reales. La prueba usa `buildLoggerParams`, la configuración de verdad |
 | Un `LoggerModule` por prueba | `nestjs-pino` mantiene un único logger raíz por proceso: el primero fija el destino |
+| Un `/v1/health` versionado | Es un endpoint de infraestructura que consulta el hosting, no parte de la API de negocio |
+| `@nestjs/terminus` para el health check | Añade una dependencia para comprobar cosas que aún no existen (base de datos, Redis). Se reevalúa con Prisma y Redis |
+| Incluir la versión o datos internos en la respuesta | Un endpoint público no debe dar pistas a un atacante (OWASP A05) |
+| Probar con `AppModule` completo | Leería el `.env` local y la prueba dependería de la máquina |
+| Un segundo `FakeClock` compartido para la prueba | Solo hace falta una hora fija: un objeto literal basta |
+| Excluir `/health` de los logs ahora | Nadie la consulta todavía. Se decide en la fase 7 |
 | Jest en lugar de Vitest | Vitest es el ejecutor por defecto de los proyectos ESM de Nest 12 (ver 08, decisión 1) |
 
 ## 5. Cómo verificar
@@ -868,6 +980,7 @@ Esperado:
 - `pnpm test` desde la raíz ejecuta las pruebas a través de Turbo. En la segunda ejecución, Turbo las toma de la caché (`FULL TURBO`).
 - **Prueba del `Clock` (paso 7):** `test` muestra `2 passed` en archivos y `12 passed` en pruebas. `dist/common` contiene `clock.js` y `clock.module.js`, sin ningún `.spec.js`. `pnpm lint:root` no da errores y la API sigue arrancando con `ClockModule` cargado.
 - **Logs y redacción (pasos 8 y 9):** `test` muestra `3 passed` en archivos y `18 passed` en pruebas, y es estable al repetirse. `pnpm -F @manos/api start` escribe líneas JSON y termina con `Nest application successfully started`. Si se envía a una ruta inexistente una petición con las cabeceras `Authorization` y `Cookie` con valores inventados, la línea `request completed` lleva `"authorization":"[Redacted]"` y `"cookie":"[Redacted]"`, y esos valores **no aparecen** en ninguna parte del log. `LOG_LEVEL=silent` no escribe nada, `LOG_LEVEL=loud` no arranca (`→ at LOG_LEVEL`) y `NODE_ENV=staging` falla con el error visible y código de salida 1.
+- **Endpoint `/health` (paso 10):** `test` muestra `4 passed` en archivos y `20 passed` en pruebas, y es estable al repetirse. `dist/health` contiene `health.controller.js` y `health.module.js`, sin `.spec.js`. Con la API arrancada, `curl -i localhost:3000/health` devuelve `HTTP/1.1 200 OK`, `Content-Type: application/json` y un cuerpo como `{"status":"ok","time":"2026-10-12T21:38:43.075Z"}` con la hora actual; un `POST` a la misma ruta devuelve 404. El arranque muestra `Mapped {/health, GET} route` y cada consulta aparece en el log. Si en el controlador se cambia `'ok'` por `'up'`, falla exactamente la prueba del cuerpo.
 - **Prueba que falla a propósito:** cambiar `.min(1)` por `.min(0)` en el esquema hace fallar las pruebas de los puertos `""` y `"0"`. Debe deshacerse el cambio después.
 
 ## 6. Trampas conocidas
@@ -899,6 +1012,10 @@ Esperado:
 - **`TS1272` con tipos en firmas decoradas.** Si una clase decorada recibe un tipo importado con `import { X }` y solo es un tipo, TypeScript exige `import type`. Es el caso contrario al de `Clock`, que debe importarse como valor. Aquí se evita usando `@Header` en lugar de `@Res()`, que habría obligado a instalar `@types/express`.
 - **`PinoLogger` se obtiene con `resolve`**, no con `get`, porque es transitorio.
 - **Pruebas de "no aparece X" que pasan en vacío.** Hay que comprobar también que la línea de log existe (`request completed`, `test event`).
+- **`Nest can't resolve dependencies of the HealthController (?)`.** Se importó `Clock` con `import type`, o la prueba no incluye `ClockModule`.
+- **`Cannot GET /health` con la API real.** Falta importar `HealthModule` en `AppModule`. La prueba no lo detecta porque no usa `AppModule`; lo detecta el `curl`.
+- **`X-Powered-By: Express` en las respuestas.** Revela el framework. Se elimina con `helmet`, pendiente para un PR posterior.
+- **Un `curl` con cabecera `Authorization` escrito en el documento activa gitleaks** (regla `curl-auth-header`) aunque el valor sea inventado, y bloquea el commit. Se describe la prueba con palabras y no se silencia la regla.
 - **JSON roto en `package.json`.** Una coma de más o de menos al añadir `scripts`. pnpm lo señala con `ERR_PNPM_JSON_PARSE`.
 - **`nodenext` con `Bundler`.** TypeScript da error si se mezclan. Hay que cambiar `module` y `moduleResolution` a la vez.
 - **`verbatimModuleSyntax` y decoradores.** Las clases que se inyectan por constructor deben importarse con `import`, **no** con `import type`, porque Nest necesita el valor en tiempo de ejecución.
