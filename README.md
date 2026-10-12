@@ -1,6 +1,6 @@
 # Manos
 
-Local services marketplace for Mexico (plumbers, electricians, cleaning, and similar trades) with an autonomous WhatsApp support bot, human handoff, provider memberships, payments, and CFDI invoicing.
+Local services marketplace for Mexico (plumbers, electricians, cleaning, and similar trades) with an autonomous WhatsApp support bot, human handoff, provider memberships and payments.
 
 > **Status:** planning complete, implementation starts at Phase 0. This README is the living source of truth for scope, decisions, and quality standards. It is updated at the end of every phase.
 
@@ -45,7 +45,7 @@ A customer in Mexico needs a service. They write on WhatsApp or use the web. The
 | Marketplace (catalog, search, reviews) | Provider and service catalog, search by zone and category |
 | Authentication, authorization, user management, profiles | Role-based access: customer, provider, agent, admin |
 | Memberships, packages, subscriptions | Paid provider plans (visibility, lead limits, bot access) |
-| Invoicing and payment gateway | Recurring billing and CFDI invoices |
+| Payment gateway | Recurring billing for provider memberships |
 | Direct WhatsApp contact with a provider | "Contact" button that opens a chat with context |
 | Support bot | 24/7 answers, catalog lookup, lead qualification |
 | Scheduled messages and auto-replies | Reminders, follow-ups, campaigns (approved templates) |
@@ -59,7 +59,6 @@ A customer in Mexico needs a service. They write on WhatsApp or use the web. The
 | Topic | Decision | Reason |
 |---|---|---|
 | Payments | Stripe Mexico (card, OXXO, SPEI); Mercado Pago as alternative | Many users pay in cash at OXXO or by bank transfer, not by card |
-| Invoicing | CFDI 4.0 through a PAC (Facturama or SW Sapien) | The SAT requires stamped invoices |
 | Privacy | Privacy notice under the LFPDPPP | The platform stores phone numbers and addresses |
 | Language and currency | es-MX default, en secondary, prices in MXN | Target market |
 | WhatsApp | Official Meta Cloud API | Unofficial libraries risk number bans and are not production-grade |
@@ -75,7 +74,7 @@ manos/
 ├─ apps/
 │  ├─ web/        Next.js (landing, marketplace, provider panel)
 │  ├─ api/        NestJS (auth, users, providers, catalog, whatsapp,
-│  │              bot, inbox, billing, invoicing, notifications)
+│  │              bot, inbox, billing, notifications)
 │  └─ mobile/     React Native + Expo (provider and agent)
 ├─ packages/
 │  ├─ shared/     types, Zod validations, constants
@@ -108,7 +107,7 @@ Phases are ordered by what blocks later work and by portfolio value.
 | 1. Marketplace core | Data model, own authentication (email verification, password recovery), roles, profiles, provider verification, catalog, search, i18n, About and Contact pages, local mail server | Critical | Database design, authN/authZ, SSR |
 | 2. WhatsApp and basic bot | Webhook, auto-replies, direct-contact button, lead qualification | High | Webhooks, idempotency, HMAC signatures, LLM tools |
 | 3. Inbox and human handoff | Real-time inbox, conversation states (bot, waiting for agent, human) | High | WebSockets, state machines |
-| 4. Monetization | Packages, subscriptions, payment webhooks, plan limits, CFDI invoices | High | Recurring payments, reconciliation |
+| 4. Monetization | Packages, subscriptions, payment webhooks, plan limits | High | Recurring payments, reconciliation |
 | 5. Automation and CRM | Scheduled templates, reminders, lead follow-up, contacts, outbound webhooks | Medium | Queues, retries, backoff |
 | 6. Mobile app | Provider and agent app, push notifications | Medium | React Native |
 | 7. Production and polish | IaC deployment, monitoring, backups, final OWASP/WCAG/Lighthouse audit, portfolio docs | Medium | Operations |

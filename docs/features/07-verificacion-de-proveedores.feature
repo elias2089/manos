@@ -7,11 +7,22 @@ Característica: Verificación de proveedores por un administrador
 
   Antecedentes:
     Dado que ha iniciado sesión una cuenta "admin"
-    Y que existe un proveedor "Plomería Torres" en estado "pending" con al menos una categoría y una zona
+    Y que existe un proveedor "Plomería Torres" en estado "pending" con al menos una categoría y una zona, que ya pidió la revisión
 
   Escenario: El administrador ve los proveedores pendientes
     Cuando abre la lista de proveedores pendientes
-    Entonces ve a "Plomería Torres" con su fecha de registro y sus categorías
+    Entonces ve a "Plomería Torres" con la fecha en que pidió la revisión y sus categorías
+
+  Escenario: Un proveedor que aún no pidió la revisión no aparece en la lista
+    Dado que existe un proveedor "Hogar Limpio" en estado "pending" que aún no pidió la revisión
+    Cuando el administrador abre la lista de proveedores pendientes
+    Entonces "Hogar Limpio" no aparece en la lista
+
+  Escenario: Pedir la revisión con el perfil completo lo pone en la lista del administrador
+    Dado que existe un proveedor "Hogar Limpio" en estado "pending" con al menos una categoría y una zona
+    Cuando ese proveedor pide la revisión
+    Entonces se guarda la fecha de la solicitud
+    Y "Hogar Limpio" aparece en la lista de proveedores pendientes
 
   Escenario: Aprobar a un proveedor
     Cuando aprueba a "Plomería Torres"
@@ -29,6 +40,7 @@ Característica: Verificación de proveedores por un administrador
     Entonces su estado pasa a "rejected"
     Y se le envía un correo con el motivo del rechazo
     Y su perfil no es visible públicamente
+    Y ya no aparece en la lista de proveedores pendientes
 
   Escenario: Un proveedor rechazado corrige su perfil y vuelve a pedir la revisión
     Dado que "Plomería Torres" fue rechazado
@@ -37,9 +49,11 @@ Característica: Verificación de proveedores por un administrador
     Y aparece de nuevo en la lista de pendientes
 
   Escenario: Un proveedor sin categoría o sin zona no puede pedir la revisión
-    Dado que existe un proveedor en estado "pending" sin ninguna zona
+    Dado que existe un proveedor en estado "pending" sin ninguna zona que aún no pidió la revisión
     Cuando ese proveedor pide la revisión
     Entonces la solicitud es rechazada con el error "agrega al menos una zona"
+    Y no se guarda ninguna fecha de solicitud
+    Y el proveedor no aparece en la lista de proveedores pendientes
 
   Escenario: Un proveedor pendiente no es visible públicamente
     Cuando una persona anónima busca a "Plomería Torres"

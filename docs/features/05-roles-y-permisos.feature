@@ -26,10 +26,10 @@ Característica: Roles y permisos
 
   @seguridad
   Escenario: Un proveedor no puede ver ni editar los datos de otro proveedor
-    Dado que el primer proveedor tiene un servicio con identificador conocido
-    Cuando el segundo proveedor intenta editar ese servicio
-    Entonces recibe el mismo resultado que si el servicio no existiera
-    Y el servicio no cambia
+    Dado que el primer proveedor tiene un perfil de proveedor con identificador conocido
+    Cuando el segundo proveedor intenta editar ese perfil
+    Entonces recibe el mismo resultado que si el perfil no existiera
+    Y el perfil no cambia
 
   @seguridad
   Escenario: Cambiar un identificador en la dirección no expone datos ajenos

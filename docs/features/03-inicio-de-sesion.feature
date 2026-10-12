@@ -65,11 +65,45 @@ Característica: Inicio y cierre de sesión
     Y se revocan todas las sesiones derivadas de ese inicio de sesión
     Y la persona deberá iniciar sesión de nuevo
 
-  Escenario: La sesión expira tras 7 días sin renovarse
-    Dado que el último token de renovación se emitió hace más de 7 días
+  Escenario: La sesión expira tras 1 hora sin renovarse
+    Dado que el último token de renovación se emitió hace más de 1 hora
     Cuando la aplicación pide renovar la sesión
-    Entonces la petición es rechazada
+    Entonces la petición es rechazada porque la sesión expiró
+    Y no se revoca ninguna otra sesión
     Y la persona deberá iniciar sesión de nuevo
+
+  Escenario: Usar la aplicación con frecuencia mantiene viva la sesión
+    Dado que la persona renueva su sesión cada 15 minutos durante 3 horas
+    Cuando la aplicación pide renovar la sesión una vez más
+    Entonces se emiten un token de acceso y un token de renovación nuevos
+
+  @seguridad
+  Escenario: La sesión expira a los 7 días aunque se use sin parar
+    Dado que la sesión empezó hace más de 7 días y se renovó con regularidad
+    Cuando la aplicación pide renovar la sesión
+    Entonces la petición es rechazada porque la sesión alcanzó su duración máxima
+    Y la persona deberá iniciar sesión de nuevo
+
+  @seguridad
+  Escenario: Un token de renovación nuevo nunca vive más allá del límite de 7 días
+    Dado que la sesión empezó hace 6 días, 23 horas y 30 minutos
+    Cuando la aplicación pide renovar la sesión
+    Entonces el token de renovación nuevo vence cuando se cumplen 7 días desde el inicio de la sesión
+    Y no vence 1 hora después de la renovación
+
+  @seguridad
+  Escenario: La cookie de renovación solo viaja a las rutas de autenticación
+    Cuando inicia sesión con "ana@example.com" y "una-clave-larga-123"
+    Entonces la cookie del token de renovación está restringida a las rutas de autenticación "/v1/auth"
+    Y las peticiones al resto de la API no incluyen esa cookie
+
+  @seguridad
+  Escenario: Si no se pueden contar los intentos, el inicio de sesión se rechaza
+    Dado que el servicio que cuenta los intentos fallidos no está disponible
+    Cuando inicia sesión con "ana@example.com" y "una-clave-larga-123"
+    Entonces el inicio de sesión es rechazado con un error temporal
+    Y no se crea ninguna sesión
+    Y el catálogo público sigue disponible
 
   Escenario: Cerrar sesión
     Dado que tiene una sesión iniciada

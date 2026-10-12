@@ -420,8 +420,8 @@ Con `globals: true`, `describe`, `it` y `expect` están disponibles sin importar
 
 - **Qué es.** El ejecutor de Gherkin para JavaScript. Lee los `.feature` y los vincula con código.
 - **Para qué lo usamos.** Ejecutar los escenarios de la **API** (cuentas, sesiones, permisos, verificación de proveedores) como criterio de aceptación de la fase.
-- **Objetivo.** Que los 102 escenarios aprobados dejen de ser texto y pasen a ser pruebas que se ponen en rojo cuando alguien rompe una regla.
-- **Por qué dentro del mismo proceso.** Muchos escenarios dependen del tiempo (enlace vencido a las 24 h, bloqueo de 15 minutos, sesión de 7 días). Dentro del mismo proceso que la API se le entrega un **reloj falso** que se adelanta; desde fuera de una API ya arrancada no se puede mover su reloj.
+- **Objetivo.** Que los 119 escenarios aprobados dejen de ser texto y pasen a ser pruebas que se ponen en rojo cuando alguien rompe una regla.
+- **Por qué dentro del mismo proceso.** Muchos escenarios dependen del tiempo (enlace vencido a las 24 h, bloqueo de 15 minutos, sesión de 1 hora de inactividad y 7 días como máximo). Dentro del mismo proceso que la API se le entrega un **reloj falso** que se adelanta; desde fuera de una API ya arrancada no se puede mover su reloj.
 
 ```ts
 // features/steps/login.steps.ts (ilustrativo)
