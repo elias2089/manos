@@ -1,8 +1,8 @@
 # 10. API base: esqueleto de NestJS
 
-PR: `feat/api-base`. Archivos nuevos: `apps/api/`. Cambios en `pnpm-lock.yaml`.
+PR: `feat/api-base`. Archivos nuevos: `apps/api/`. Cambios en `pnpm-lock.yaml`, `.env.example`, `.gitignore` (se ignora `.claude/`), `docs/README.md`, `docs/08` y `docs/09` (el riesgo de Cucumber se aplazó).
 
-> **Estado: en construcción.** Este documento se completa paso a paso, en el mismo PR que el código. Cubre hasta el paso 10 (endpoint `/health`). Las secciones de configuración, logs, `Clock`, `/health` y pruebas se añaden al cerrar cada paso.
+Este PR se construyó paso a paso: cada paso del apartado 3 es un cambio pequeño que se verificó antes de seguir, y varios cierran un commit. Lo que queda pendiente para otros PRs está en el apartado 7.
 
 ## 1. Objetivo
 
@@ -1020,3 +1020,32 @@ Esperado:
 - **`nodenext` con `Bundler`.** TypeScript da error si se mezclan. Hay que cambiar `module` y `moduleResolution` a la vez.
 - **`verbatimModuleSyntax` y decoradores.** Las clases que se inyectan por constructor deben importarse con `import`, **no** con `import type`, porque Nest necesita el valor en tiempo de ejecución.
 - **TypeScript 7.** Existe en npm, pero el repositorio usa 6.0.3 por incompatibilidad con `typescript-eslint` (ver 04).
+
+## 7. Pendiente para otros PRs
+
+| Punto | Estado | Cuándo se resuelve |
+|---|---|---|
+| Cargar TypeScript con decoradores desde Cucumber | **Riesgo sin resolver**, aplazado de este PR (ver 08, sección 5.13) | **Antes del PR 3** |
+| `X-Powered-By: Express` y demás cabeceras de seguridad | Sin resolver. Lo cubre `helmet` (ver 08, sección 5.11) | Un PR posterior; antes de exponer la API |
+| Prefijo global `v1` | Sin hacer. `/health` quedará fuera con `setGlobalPrefix('v1', { exclude: [...] })` | PR 3 |
+| Un token en la query de la URL (`?token=...`) aparece en los logs | Sin resolver | PR 3 y 4, con los enlaces de verificación y de recuperación |
+| Retención de las direcciones IP que quedan en los logs | Sin decidir | Fase 7 |
+| Excluir `/health` de los logs | Sin hacer: nadie la consulta todavía | Fase 7 |
+| `FakeClock` compartido entre pruebas | Hoy vive en `clock.spec.ts`; la prueba de `/health` usa un objeto literal | Cuando haya un segundo uso real, probablemente con los escenarios de sesión |
+| Comprobaciones de *readiness* (base de datos y Redis) en `/health` | Sin hacer: aún no existen | Con Prisma y Redis |
+| Dependabot frente a los paquetes nuevos | **Sin verificar.** El grupo del ecosistema `npm` se llama `dev-dependencies` y ahora incluye dependencias de ejecución; tampoco se comprobó que lea `apps/api` | Antes del PR 2 o con el primer PR de Dependabot |
+| `.claude/` (skill del proyecto) | Ignorado por git: solo existe en la máquina local | Si algún día se comparte, acotar la regla a `.claude/skills/` |
+
+## 8. Para repetirlo en otro proyecto
+
+1. Crear la rama y la carpeta `apps/api` con su `package.json` (`"type": "module"`, `engines` y versión exacta de Node).
+2. Instalar las dependencias de ejecución con `pnpm add -F @manos/api --save-exact`, fijando cada versión tras comprobarla con `npm view`.
+3. Instalar `@types/node` con la misma versión mayor que Node y crear `tsconfig.json` con `nodenext`, decoradores y `noEmit`, y `tsconfig.build.json` con `outDir`, `rootDir`, `include` y `exclude` de las pruebas.
+4. Escribir `app.module.ts` y `main.ts` con imports relativos terminados en `.js`, y los scripts `build`, `typecheck` y `start`.
+5. Validar la configuración con un esquema Zod, cargar el `.env` de la raíz y añadir cada variable a `.env.example` en el mismo commit que la usa.
+6. Configurar Vitest con `unplugin-swc` y escribir las pruebas junto al código.
+7. Crear el `Clock` inyectable y usarlo para toda fecha.
+8. Configurar pino con redacción de credenciales y **probarla de forma automática**, rompiendo el código a propósito una vez para comprobar que la prueba falla.
+9. Añadir `/health` con su prueba e2e.
+10. Verificar con la sección 5, **sobre todo el arranque real con `curl`**: las pruebas no detectan que falte importar un módulo en `AppModule`.
+11. Hacer el cambio por rama y PR, con un commit por funcionalidad y la documentación en el mismo commit.

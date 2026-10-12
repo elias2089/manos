@@ -355,7 +355,7 @@ import { LoggerModule } from 'nestjs-pino';
 LoggerModule.forRoot({
   pinoHttp: {
     level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
-    redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body.contrasena'],
+    redact: ['req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'],
   },
 });
 ```
@@ -368,7 +368,9 @@ app.useLogger(app.get(Logger));
 ```
 **[Doc oficial]** `LoggerModule.forRoot({ pinoHttp })` y el par `bufferLogs: true` más `app.useLogger(app.get(Logger))`. La opción `redact` se pasa dentro de `pinoHttp` (viene indicado en la documentación de `nestjs-pino`).
 
-**[Sin verificar]** Las **rutas exactas** de `redact` dependen de lo que `pino-http` incluya en cada línea. Por eso hay una prueba obligatoria: hacer una petición con una contraseña y comprobar que **no aparece** en la salida (escenarios "la contraseña no aparece en los registros" y "el registro no incluye contraseñas ni tokens"). También la compatibilidad de `nestjs-pino` con NestJS 12.
+**[Verificado en el PR 1, ver 10]** `nestjs-pino` funciona con NestJS 12. `pino-http` **no registra el cuerpo de las peticiones**, así que una ruta como `req.body.contrasena` nunca existiría en el log; sí registra las cabeceras, la URL, la query y la dirección IP. Se redactan las cabeceras de credenciales y los nombres de campo sensibles, y pruebas automáticas comprueban que ninguno aparece en la salida. Lo que protege de verdad una contraseña es **no registrar cuerpos**; la redacción es la red de seguridad.
+
+**Pendiente.** Un token en la query de la URL (`?token=...`) aparecería en el log. Se trata con los enlaces de verificación y de recuperación (PR 3 y 4). La retención de las direcciones IP se decide en la fase 7.
 
 ### 5.11 `helmet` 8.3.0
 
@@ -449,7 +451,7 @@ Then('el inicio de sesión es rechazado por exceso de intentos',
 ```
 **[Doc oficial]** Los pasos se escriben con **`Given`, `When` y `Then`**, aunque los `.feature` estén en español: las palabras `Dado`, `Cuando` y `Entonces` son del archivo Gherkin, y no se usan en el código. Las expresiones `{string}` e `{int}` capturan valores del texto. Hay que usar `function` normal y **no** funciones flecha, porque Cucumber vincula `this` al "mundo" del escenario.
 
-**Riesgo sin resolver (importante).** Esta decisión tiene un punto que no sé cómo resolver todavía: **cómo carga Cucumber el TypeScript de la API con la metadata de decoradores**. La inyección de NestJS depende de ella, y herramientas rápidas como `tsx` (esbuild) **no** la generan. Opciones a evaluar en el primer PR de la API, con una prueba mínima antes de comprometerse:
+**Riesgo sin resolver (importante).** Esta decisión tiene un punto que no sé cómo resolver todavía: **cómo carga Cucumber el TypeScript de la API con la metadata de decoradores**. La inyección de NestJS depende de ella, y herramientas rápidas como `tsx` (esbuild) **no** la generan. **Se aplazó del PR 1** por decisión del proyecto y **debe resolverse antes del PR 3**, el primero que necesita escenarios ejecutables. Opciones a evaluar, con una prueba mínima antes de comprometerse:
 1. Cucumber sobre código compilado con SWC.
 2. Un cargador de TypeScript basado en SWC.
 3. Ejecutar los `.feature` con Vitest (existe `vitest-cucumber`; no verifiqué su madurez), que ya usaría `unplugin-swc`.
@@ -507,12 +509,12 @@ Navegador ──► Next.js ──► NestJS (apps/api)
 
 | Punto | Estado | Cuándo se resuelve |
 |---|---|---|
-| `emitDecoratorMetadata` frente a `verbatimModuleSyntax` en el `tsconfig` | Sin verificar | Al crear `apps/api` |
-| Cargar TypeScript con decoradores desde Cucumber | **Riesgo sin resolver** | Primer PR de la API, con una prueba mínima |
+| `emitDecoratorMetadata` frente a `verbatimModuleSyntax` en el `tsconfig` | Verificado en el PR 1 (ver 10): `apps/api` usa `nodenext` y decoradores experimentales, y compila con ambas banderas. Las clases que se inyectan por constructor se importan como valor, no con `import type` | |
+| Cargar TypeScript con decoradores desde Cucumber | **Riesgo sin resolver** (aplazado desde el PR 1) | **Antes del PR 3**, con una prueba mínima |
 | Forma exacta de `PrismaPg` y de `prisma.config.ts` en 7.10.0 | Sin verificar (la documentación muestra dos) | Al instalar Prisma |
 | Instalación de `argon2` (nativa) con Node 24 | Sin verificar | Al instalar |
-| Importaciones en ESM (`argon2`, `ioredis`, `supertest`, `helmet`) | Sin verificar | Al escribir cada servicio |
-| `nestjs-pino` con Nest 12 y rutas de `redact` | Sin verificar | Prueba de que la contraseña no aparece en logs |
+| Importaciones en ESM (`argon2`, `ioredis`, `helmet`) | Sin verificar. `supertest` ya está verificado en el PR 1: funciona con `import request from 'supertest'` | Al escribir cada servicio |
+| `nestjs-pino` con Nest 12 y rutas de `redact` | Verificado en el PR 1 (ver 10), con pruebas automáticas | |
 | `@nestjs/jwt`: `algorithm` en `signOptions` y fijar algoritmos al verificar | Sin verificar | Al implementar la autenticación |
 | Firma de `PipeTransform` en Nest 12 | Sin verificar | Al escribir el pipe |
 | Mailpit: imagen v1.31.5 ejecutándose en el compose | Sin verificar | PR que añada Mailpit |
@@ -523,6 +525,9 @@ Navegador ──► Next.js ──► NestJS (apps/api)
 1. **Cucumber no usa `Dado`, `Cuando` ni `Entonces` en el código.** En una explicación anterior mostré un ejemplo con esas funciones; era inexacto. Se usan `Given`, `When` y `Then` (5.13).
 2. **Se descarta `cookie-parser`.** NestJS 12 trae manejo de cookies propio (5.7).
 3. **Aparece un riesgo nuevo sobre Cucumber:** la carga de TypeScript con decoradores (5.13). Antes lo presenté como una decisión sin reservas.
+4. **El riesgo de Cucumber se aplazó del PR 1.** Debe resolverse antes del PR 3 (5.13 y sección 7).
+5. **`pino-http` no registra el cuerpo de las peticiones.** La ruta `req.body.contrasena` de 5.10 no tenía sentido: se sustituyó por la redacción de cabeceras y de nombres de campo sensibles (ver 10).
+6. **Versiones instaladas en el PR 1** que difieren en un parche de las citadas arriba: `@nestjs/*` 12.1.3, `zod` 4.6.7 y `vitest` 5.0.4. El detalle está en 10.
 
 ## 9. Alternativas descartadas
 
