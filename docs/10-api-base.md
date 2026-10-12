@@ -2,7 +2,7 @@
 
 PR: `feat/api-base`. Archivos nuevos: `apps/api/`. Cambios en `pnpm-lock.yaml`.
 
-> **Estado: en construcción.** Este documento se completa paso a paso, en el mismo PR que el código. Cubre hasta el paso 7 (reloj inyectable). Las secciones de configuración, logs, `Clock`, `/health` y pruebas se añaden al cerrar cada paso.
+> **Estado: en construcción.** Este documento se completa paso a paso, en el mismo PR que el código. Cubre hasta el paso 9 (logs con redacción y su prueba). Las secciones de configuración, logs, `Clock`, `/health` y pruebas se añaden al cerrar cada paso.
 
 ## 1. Objetivo
 
@@ -50,6 +50,17 @@ Crear la aplicación `apps/api` con NestJS 12: un esqueleto que compila, arranca
 | **Módulo global (`@Global`)** | Sus providers están disponibles en toda la app sin importar el módulo en cada sitio |
 | **Reloj falso (fake)** | Versión de `Clock` para pruebas cuya hora se controla y se puede adelantar |
 | **`override`** | Marca que un método reemplaza al de la clase padre. `noImplicitOverride` obliga a escribirlo |
+| **Log (registro)** | Línea que la aplicación escribe para dejar constancia de lo ocurrido. Sirve para investigar fallos y ataques (OWASP A09) |
+| **Log estructurado** | Cada línea es un objeto JSON (`{"level":30,"msg":"..."}`) en lugar de texto libre, y se puede buscar y filtrar por campo |
+| **Nivel de log** | Qué tan detallado es: `fatal`, `error`, `warn`, `info`, `debug`, `trace`. Un nivel muestra ese y los más graves; `silent` no escribe nada |
+| **pino**, **`pino-http`**, **`nestjs-pino`** | La librería de logs, el registro de cada petición HTTP y la integración con Nest |
+| **Redacción (`redact`)** | Reemplazar el valor de campos sensibles por `[Redacted]` justo antes de escribir la línea |
+| **`bufferLogs`** | Nest guarda los logs del arranque hasta que el logger de pino esté listo, para que todos salgan en el mismo formato |
+| **`stdout`** | La salida estándar del proceso: la terminal en desarrollo. Pino escribe ahí |
+| **Prueba de integración** | Levanta varias piezas reales juntas (Nest, el módulo de logs, un servidor HTTP) y comprueba el resultado |
+| **`supertest`** | Hace peticiones HTTP a la aplicación sin abrir un puerto de verdad |
+| **Prueba frágil (flaky)** | La que pasa unas veces y falla otras sin cambiar el código |
+| **Falso positivo** | Prueba que pasa aunque el código esté roto |
 
 ## 3. Qué se hizo, paso a paso
 
@@ -529,6 +540,256 @@ describe('ClockModule', () => {
 - **El reloj falso vive en el archivo de pruebas.** Solo hay un uso. Se moverá a un archivo compartido cuando haya un segundo (YAGNI), probablemente con los escenarios de sesión.
 - **Ubicación en `src/common/`**, según docs/09, sección 9.
 
+### Paso 8. Logs con pino y redacción de datos sensibles
+
+```bash
+pnpm add -F @manos/api --save-exact nestjs-pino@5.3.1 pino@10.4.0 pino-http@11.0.0
+```
+
+`pino` y `pino-http` son peer dependencies obligatorias de `nestjs-pino`.
+
+`apps/api/src/config/env.schema.ts` añade una variable al esquema:
+
+```ts
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+```
+
+`.env.example` añade `LOG_LEVEL=info` en la sección de la API. Con esta variable, la primera prueba de `env.schema.spec.ts` **falla** hasta que su objeto esperado incluye `LOG_LEVEL: 'info'`: la prueba avisa de que el contrato cambió. Se añaden además una prueba del valor por defecto y otra que rechaza un nivel desconocido.
+
+`apps/api/src/config/logger.config.ts` (versión del paso 9, con el parámetro `stream`):
+
+```ts
+import type { Params } from 'nestjs-pino';
+import type { DestinationStream } from 'pino';
+
+import type { Env } from './env.schema.js';
+
+const SENSITIVE_KEYS = [
+  'password',
+  'passwordHash',
+  'currentPassword',
+  'newPassword',
+  'token',
+  'accessToken',
+  'refreshToken',
+];
+
+// The "*" wildcard covers one level of nesting, so each key is listed at the root and one level down
+export const REDACTED_PATHS = [
+  'req.headers.authorization',
+  'req.headers.cookie',
+  'res.headers["set-cookie"]',
+  ...SENSITIVE_KEYS,
+  ...SENSITIVE_KEYS.map((key) => `*.${key}`),
+];
+
+// The optional stream lets tests capture the log lines instead of writing them to stdout
+export function buildLoggerParams(level: Env['LOG_LEVEL'], stream?: DestinationStream): Params {
+  const options = { level, redact: REDACTED_PATHS };
+  return { pinoHttp: stream ? [options, stream] : options };
+}
+```
+
+`apps/api/src/app.module.ts` registra el módulo de logs con la configuración ya validada:
+
+```ts
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
+
+import { ClockModule } from './common/clock.module.js';
+import type { Env } from './config/env.schema.js';
+import { validateEnv } from './config/env.schema.js';
+import { buildLoggerParams } from './config/logger.config.js';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      // The path is relative to the working directory (apps/api when run with pnpm -F)
+      envFilePath: '../../.env',
+      validate: validateEnv,
+    }),
+    LoggerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>) =>
+        buildLoggerParams(config.get('LOG_LEVEL', { infer: true })),
+    }),
+    ClockModule,
+  ],
+})
+export class AppModule {}
+```
+
+`apps/api/src/main.ts`:
+
+```ts
+import { ConfigService } from '@nestjs/config';
+import { NestFactory } from '@nestjs/core';
+import { Logger } from 'nestjs-pino';
+
+import { AppModule } from './app.module.js';
+import type { Env } from './config/env.schema.js';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(Logger));
+  const config = app.get<ConfigService<Env, true>>(ConfigService);
+  await app.listen(config.get('PORT', { infer: true }));
+}
+
+await bootstrap();
+```
+
+| Parte | Qué hace |
+|---|---|
+| `SENSITIVE_KEYS` | Nombres de campo que nunca deben aparecer con su valor |
+| `*.password` y similares | Versión de un nivel de cada nombre. El comodín `*` cubre **un solo nivel**: `user.password` sí, `user.profile.password` no |
+| `req.headers.authorization` y `req.headers.cookie` | Cabeceras de petición con credenciales |
+| `res.headers["set-cookie"]` | Cookies que la API entrega (ahí irá el token de renovación) |
+| `Env['LOG_LEVEL']` | Tipo del nivel sacado del esquema: la lista no se repite |
+| `forRootAsync` + `inject: [ConfigService]` | La configuración de logs se calcula con `ConfigService`, ya validado |
+| `bufferLogs: true` | Nest guarda los logs del arranque hasta que pino esté listo |
+| `app.useLogger(app.get(Logger))` | A partir de ahí, Nest escribe sus logs con pino |
+
+**Dónde se guardan los logs.** En ninguna parte: pino escribe cada línea en `stdout`, y si se cierra la terminal desaparecen. No usan PostgreSQL ni Redis. Es una decisión deliberada de las aplicaciones "12-factor": la aplicación **emite** los logs y la infraestructura que la ejecuta los recoge. Con Docker se ven con `docker logs`. En producción (fase 7), la plataforma de hosting recoge `stdout` y lo envía a un servicio de logs donde se guardan, se buscan y se borran según una política de retención. No hay nada que decidir antes.
+
+**Logs y auditoría son cosas distintas.**
+
+| | Logs (pino) | `AuditLog` (ver 09) |
+|---|---|---|
+| Qué registra | Lo técnico: peticiones, errores, intentos fallidos | Decisiones de negocio, como la de un administrador sobre un proveedor |
+| Dónde vive | `stdout` y, luego, un servicio externo | Tabla en PostgreSQL |
+| Cuánto dura | Días o semanas, según la retención | Se conserva siempre: por eso los usuarios se anonimizan y no se borran |
+
+**Dos hallazgos que corrigen o complementan a 08.**
+
+1. **`pino-http` no registra el cuerpo de las peticiones.** Docs/08 proponía redactar `req.body.contrasena`; esa ruta nunca existiría en el log. Lo que sí se registra son las cabeceras, la URL, la query y la dirección IP. La protección real contra filtrar una contraseña es **no registrar cuerpos**; la redacción es la red de seguridad por si alguien registra a mano un objeto con ese campo.
+2. **La URL se registra con su query ya parseada** (`"query":{}`) y se registra `remoteAddress`. Cuando existan los enlaces de verificación y de recuperación (PR 3 y 4), un token en `?token=...` aparecería en el log. Queda **pendiente** para esos PRs. La IP es necesaria para los límites por IP, pero es un dato personal: cuánto tiempo se conserva se decide en la fase 7.
+
+**Decisiones de diseño.**
+
+- **`LOG_LEVEL`, por defecto `info`.** Entra en este commit porque este commit la usa.
+- **La configuración vive en `config/logger.config.ts`**, separada del módulo, para poder probarla con exactamente las mismas rutas que usa la aplicación.
+- **Sin `pino-pretty`.** Es una dependencia más; el JSON es legible y es lo que corre en producción.
+- **Rutas de redacción en inglés**, porque los campos de la API lo están (`password`, `passwordHash`).
+
+### Paso 9. Prueba automática de la redacción
+
+```bash
+pnpm add -F @manos/api -D --save-exact supertest@7.3.1 @types/supertest@7.2.1
+```
+
+`apps/api/src/config/logger.config.spec.ts`:
+
+```ts
+import { Controller, Get, Header, type INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { LoggerModule, PinoLogger } from 'nestjs-pino';
+import request from 'supertest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { buildLoggerParams } from './logger.config.js';
+
+@Controller()
+class FakeLoginController {
+  @Get('login')
+  @Header('Set-Cookie', 'refresh=secret-refresh-cookie; HttpOnly')
+  login() {
+    return { ok: true };
+  }
+}
+
+const lines: string[] = [];
+const stream = {
+  write: (line: string) => {
+    lines.push(line);
+  },
+};
+const output = () => lines.join('');
+
+describe('log redaction', () => {
+  let app: INestApplication;
+  let logger: PinoLogger;
+
+  // nestjs-pino keeps one root logger per process, so the module is created once per file
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [LoggerModule.forRoot(buildLoggerParams('info', stream))],
+      controllers: [FakeLoginController],
+    }).compile();
+
+    app = moduleRef.createNestApplication();
+    await app.init();
+    logger = await moduleRef.resolve(PinoLogger);
+  });
+
+  beforeEach(() => {
+    lines.length = 0;
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('hides the Authorization and Cookie request headers', async () => {
+    await request(app.getHttpServer())
+      .get('/anything')
+      .set('Authorization', 'Bearer secret-bearer-token')
+      .set('Cookie', 'session=secret-session-cookie');
+
+    await vi.waitFor(() => expect(output()).toContain('request completed'));
+
+    expect(output()).not.toContain('secret-bearer-token');
+    expect(output()).not.toContain('secret-session-cookie');
+    expect(output()).toContain('[Redacted]');
+  });
+
+  it('hides the Set-Cookie response header', async () => {
+    await request(app.getHttpServer()).get('/login');
+
+    await vi.waitFor(() => expect(output()).toContain('request completed'));
+
+    expect(output()).not.toContain('secret-refresh-cookie');
+    expect(output()).toContain('[Redacted]');
+  });
+
+  it('hides sensitive fields in logged objects', () => {
+    logger.info({ password: 'secret-password', user: { refreshToken: 'secret-refresh-token' } }, 'test event');
+
+    expect(output()).toContain('test event');
+    expect(output()).not.toContain('secret-password');
+    expect(output()).not.toContain('secret-refresh-token');
+  });
+
+  it('keeps fields that are not sensitive', () => {
+    logger.info({ userId: 'u-ana' }, 'test event');
+
+    expect(output()).toContain('u-ana');
+  });
+});
+```
+
+| Parte | Qué hace |
+|---|---|
+| `stream ? [options, stream] : options` | Con destino, usa la forma `[opciones, destino]` que `nestjs-pino` admite. Sin él, la configuración normal |
+| `write: (line) => { lines.push(line) }` | El destino falso: guarda cada línea para poder inspeccionarla |
+| `FakeLoginController` | Ruta solo para la prueba que responde con una cookie. `@Header` fija `Set-Cookie` sin necesitar los tipos de Express |
+| `createNestApplication()` + `init()` | Arma la aplicación y registra el middleware de logs, sin abrir un puerto |
+| `moduleRef.resolve(PinoLogger)` | `PinoLogger` es transitorio: se obtiene con `resolve`, no con `get` |
+| `vi.waitFor(...)` | Espera a que exista la línea `request completed`, evitando una carrera |
+| `toContain('request completed')` y `toContain('test event')` | Comprueban que **sí hubo log**, para que "no contiene el secreto" no pase en vacío |
+| Secretos largos y únicos | Un texto corto como `abc` podría aparecer por casualidad y dar falsos positivos |
+| Prueba de `u-ana` | Comprueba que la redacción no oculta todo: una redacción total también pasaría las otras tres |
+
+**Detalle de `nestjs-pino` que condiciona la prueba.** El logger raíz es un único objeto por proceso: el primer `LoggerModule` que se crea fija las opciones y el destino, y los siguientes lo reutilizan. Existe una función para reiniciarlo, pero es interna. Por eso el módulo se crea una sola vez por archivo (`beforeAll`) y las líneas se vacían antes de cada prueba. Vitest aísla los archivos entre sí, así que no se contamina.
+
+**La prueba demuestra que detecta fallos.**
+
+- Al quitar `'req.headers.cookie'` de `REDACTED_PATHS`, falla solo la primera prueba, con `expected ... not to contain 'secret-session-cookie'`.
+- Al quitar `'res.headers["set-cookie"]'`, falla solo la segunda, con `... not to contain 'secret-refresh-cookie'`.
+- Restauradas las líneas, vuelven las 18 pruebas a verde. Se repitió la ejecución 8 veces seguidas, sin fallos.
+
 ## 4. Alternativas descartadas
 
 | Alternativa | Por qué no |
@@ -549,6 +810,14 @@ describe('ClockModule', () => {
 | Falsear el tiempo con `vi.useFakeTimers()` | Funciona para pruebas unitarias, pero no sirve para los escenarios de aceptación ni deja la hora como dependencia explícita |
 | Interfaz `Clock` con un `Symbol` como token | Obliga a escribir `@Inject(SIMBOLO)` en cada uso. La clase abstracta es su propio token |
 | Mover `FakeClock` a un archivo compartido ahora | Hay un solo uso (YAGNI) |
+| Guardar los logs en PostgreSQL o Redis | La aplicación solo emite los logs; guardarlos es trabajo de la infraestructura. Una base de datos caída dejaría a la API sin logs justo cuando más se necesitan |
+| Escribir los logs a un archivo con `pino.transport` | Crece sin límite, requiere rotación, se pierde si el contenedor se reinicia y complica el despliegue |
+| `console.log` o Winston | pino escribe JSON estructurado con muy poco coste (ver 08, decisión 8) |
+| `pino-pretty` en desarrollo | Una dependencia más sin aportar lo esencial; el JSON es lo que corre en producción |
+| Redactar `req.body.password` | `pino-http` no registra el cuerpo: esa ruta nunca existiría |
+| Probar la redacción solo a mano con `curl` | No avisa si alguien la rompe después. Se automatizó con una prueba |
+| Copiar las rutas de redacción en la prueba | Podrían divergir de las reales. La prueba usa `buildLoggerParams`, la configuración de verdad |
+| Un `LoggerModule` por prueba | `nestjs-pino` mantiene un único logger raíz por proceso: el primero fija el destino |
 | Jest en lugar de Vitest | Vitest es el ejecutor por defecto de los proyectos ESM de Nest 12 (ver 08, decisión 1) |
 
 ## 5. Cómo verificar
@@ -598,6 +867,7 @@ Esperado:
 - `dist/config` contiene `env.schema.js` y su `.map`, **sin ningún `.spec.js`**.
 - `pnpm test` desde la raíz ejecuta las pruebas a través de Turbo. En la segunda ejecución, Turbo las toma de la caché (`FULL TURBO`).
 - **Prueba del `Clock` (paso 7):** `test` muestra `2 passed` en archivos y `12 passed` en pruebas. `dist/common` contiene `clock.js` y `clock.module.js`, sin ningún `.spec.js`. `pnpm lint:root` no da errores y la API sigue arrancando con `ClockModule` cargado.
+- **Logs y redacción (pasos 8 y 9):** `test` muestra `3 passed` en archivos y `18 passed` en pruebas, y es estable al repetirse. `pnpm -F @manos/api start` escribe líneas JSON y termina con `Nest application successfully started`. Si se envía a una ruta inexistente una petición con las cabeceras `Authorization` y `Cookie` con valores inventados, la línea `request completed` lleva `"authorization":"[Redacted]"` y `"cookie":"[Redacted]"`, y esos valores **no aparecen** en ninguna parte del log. `LOG_LEVEL=silent` no escribe nada, `LOG_LEVEL=loud` no arranca (`→ at LOG_LEVEL`) y `NODE_ENV=staging` falla con el error visible y código de salida 1.
 - **Prueba que falla a propósito:** cambiar `.min(1)` por `.min(0)` en el esquema hace fallar las pruebas de los puertos `""` y `"0"`. Debe deshacerse el cambio después.
 
 ## 6. Trampas conocidas
@@ -619,6 +889,16 @@ Esperado:
 - **Olvidar `override`.** `noImplicitOverride` exige marcar el método que reemplaza al de la clase padre.
 - **`Nest can't resolve dependencies of the ExpiryChecker`.** Falta `providers: [ExpiryChecker]` en el módulo de prueba o falta `@Injectable()`.
 - **`export class ClockModule { }` con un espacio dentro de las llaves.** `prettier --check` lo marca; el formato correcto es `{}`. Las clases vacías con decorador son habituales en Nest y es fácil escribirlas con espacio.
+- **Una prueba de contrato falla al añadir una variable.** Al añadir `LOG_LEVEL`, la primera prueba del esquema falla hasta que su objeto esperado la incluye. Es lo que debe pasar.
+- **`Cannot find package 'pino-http'`.** Es peer dependency obligatoria de `nestjs-pino`.
+- **El comodín `*` cubre un solo nivel.** `user.profile.password` no se redacta. La regla real es no registrar objetos con contraseñas.
+- **El cuerpo de las peticiones no se registra, pero la URL sí.** Un token en `?token=...` quedaría en el log. Pendiente para los PR 3 y 4.
+- **La IP queda en los logs** (`remoteAddress`). Es un dato personal; su retención se decide en la fase 7.
+- **`bufferLogs` y los fallos de arranque.** Un error de configuración sigue siendo visible: sale con el formato por defecto de Nest, no en JSON, y con código de salida 1.
+- **Carrera en la prueba de logs.** Pino escribe `request completed` cuando termina la respuesta y el cliente puede recibirla antes. Sin `vi.waitFor`, la prueba falla a veces.
+- **`TS1272` con tipos en firmas decoradas.** Si una clase decorada recibe un tipo importado con `import { X }` y solo es un tipo, TypeScript exige `import type`. Es el caso contrario al de `Clock`, que debe importarse como valor. Aquí se evita usando `@Header` en lugar de `@Res()`, que habría obligado a instalar `@types/express`.
+- **`PinoLogger` se obtiene con `resolve`**, no con `get`, porque es transitorio.
+- **Pruebas de "no aparece X" que pasan en vacío.** Hay que comprobar también que la línea de log existe (`request completed`, `test event`).
 - **JSON roto en `package.json`.** Una coma de más o de menos al añadir `scripts`. pnpm lo señala con `ERR_PNPM_JSON_PARSE`.
 - **`nodenext` con `Bundler`.** TypeScript da error si se mezclan. Hay que cambiar `module` y `moduleResolution` a la vez.
 - **`verbatimModuleSyntax` y decoradores.** Las clases que se inyectan por constructor deben importarse con `import`, **no** con `import type`, porque Nest necesita el valor en tiempo de ejecución.
