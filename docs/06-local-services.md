@@ -38,7 +38,7 @@ Levantar PostgreSQL 17 y Redis 8 en tu máquina con un solo comando, sin instala
 
 ### 3.1 Qué guarda cada servicio
 
-**PostgreSQL: la memoria permanente.** Los datos que no puedes perder: usuarios, roles, proveedores, servicios, conversaciones, leads, suscripciones, pagos y facturas. Es relacional porque nuestros datos están muy conectados (un lead pertenece a un cliente, a un proveedor y a una conversación), y garantiza **transacciones**: si cobras y generas la factura, o se hacen las dos cosas o ninguna. La aplicación hablará con ella mediante Prisma, que usa consultas parametrizadas y reduce el riesgo de inyección SQL (OWASP A03).
+**PostgreSQL: la memoria permanente.** Los datos que no puedes perder: usuarios, roles, proveedores, servicios, conversaciones, leads, suscripciones y pagos. Es relacional porque nuestros datos están muy conectados (un lead pertenece a un cliente, a un proveedor y a una conversación), y garantiza **transacciones**: si cobras y activas la suscripción, o se hacen las dos cosas o ninguna. La aplicación hablará con ella mediante Prisma, que usa consultas parametrizadas y reduce el riesgo de inyección SQL (OWASP A03).
 
 **Redis: la memoria rápida.** Datos temporales o reconstruibles:
 

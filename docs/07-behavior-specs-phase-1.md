@@ -1,6 +1,6 @@
 # 07. Especificaciones de comportamiento de la fase 1 (Gherkin)
 
-PR: `docs/phase-1-behavior-specs`. Archivos nuevos: diez archivos `.feature` en `docs/features/`.
+PR: `docs/phase-1-behavior-specs`. Archivos nuevos: diez archivos `.feature` en `docs/features/`. Una actualización posterior (PR `docs/phase-1-data-and-auth-design`) corrigió algunos escenarios y añadió el archivo `11`; ver la sección 5.1.
 
 ## 1. Objetivo
 
@@ -102,7 +102,7 @@ Esquema del escenario: Se rechazan correos con formato inválido
     | ana@          |
 ```
 
-Se ejecuta una vez por cada fila de `Ejemplos`, sustituyendo `<correo>`. En este PR hay 8 esquemas con 33 filas, que equivalen a 33 ejecuciones.
+Se ejecuta una vez por cada fila de `Ejemplos`, sustituyendo `<correo>`. Hoy hay 10 esquemas con 40 filas, que equivalen a 40 ejecuciones.
 
 Una **tabla de datos** (sin `Ejemplos`) pasa una lista a un paso, como los proveedores del catálogo en `08-catalogo-y-busqueda.feature`.
 
@@ -116,7 +116,7 @@ Una **tabla de datos** (sin `Ejemplos`) pasa una lista a un paso, como los prove
 | `@privacidad` | Verifica una obligación de privacidad (LFPDPPP) |
 | `@a11y` | Verifica accesibilidad (WCAG 2.2 AA) |
 
-Sirven para ejecutar subconjuntos: por ejemplo, solo los escenarios `@seguridad` antes de una auditoría. Cuenta actual: **41 `@seguridad`, 6 `@privacidad` y 5 `@a11y`**.
+Sirven para ejecutar subconjuntos: por ejemplo, solo los escenarios `@seguridad` antes de una auditoría. Cuenta actual: **54 `@seguridad`, 6 `@privacidad` y 5 `@a11y`**.
 
 ### 3.6 Lo que Gherkin no sustituye
 
@@ -134,22 +134,23 @@ Sirven para ejecutar subconjuntos: por ejemplo, solo los escenarios `@seguridad`
 
 ## 4. Qué hicimos
 
-Diez características, **102 escenarios** (de los cuales 8 son esquemas):
+Once características, **119 escenarios** (de los cuales 10 son esquemas con 40 filas de ejemplos). Los 102 escenarios originales pasaron a 119 durante el diseño ([09](09-phase-1-data-and-auth-design.md)): se añadieron escenarios de sesión, de solicitud de revisión de proveedores y la característica `11`, y se corrigió un escenario de `05` (ver 5.1).
 
 | Archivo | Escenarios | Cubre |
 |---|---|---|
 | `01-registro.feature` | 14 | Registro de clientes y proveedores, política de contraseña, aviso de privacidad, límites, accesibilidad de errores |
 | `02-verificacion-de-correo.feature` | 7 | Enlace de verificación: vigencia, un solo uso, reenvío y límites |
-| `03-inicio-de-sesion.feature` | 11 | Sesión por cookies, mensajes que no revelan datos, bloqueo, renovación con rotación, detección de reutilización, cierre de sesión |
+| `03-inicio-de-sesion.feature` | 16 | Sesión por cookies, mensajes que no revelan datos, bloqueo, renovación con rotación, detección de reutilización, caducidad por inactividad (1 hora) y por duración máxima (7 días), cookie de renovación restringida, rechazo si Redis no está disponible, cierre de sesión |
 | `04-recuperacion-de-contrasena.feature` | 10 | Restablecer contraseña sin revelar cuentas, vigencia, un solo uso, cierre de sesiones |
 | `05-roles-y-permisos.feature` | 7 | Matriz de acceso por rol, IDOR, asignación masiva de campos, permisos en el servidor |
 | `06-perfil.feature` | 10 | Ver y editar, cambiar correo y contraseña, cancelar cuenta (ARCO) |
-| `07-verificacion-de-proveedores.feature` | 10 | Aprobar y rechazar con motivo, nueva revisión, auditoría, concurrencia entre administradores |
+| `07-verificacion-de-proveedores.feature` | 12 | Solicitud de revisión, aprobar y rechazar con motivo, nueva revisión, auditoría, concurrencia entre administradores |
 | `08-catalogo-y-busqueda.feature` | 13 | Catálogo, búsqueda por categoría y zona, paginación, parámetros inválidos, texto con caracteres especiales, contenido inocuo, teclado |
 | `09-idioma.feature` | 9 | Idioma por defecto, cambio y persistencia, fallback, fechas, errores de la API, accesibilidad |
 | `10-paginas-informativas.feature` | 11 | Sobre nosotros, aviso de privacidad, contacto, límites, honeypot, inyección, redes sociales |
+| `11-proteccion-de-peticiones.feature` | 10 | CSRF: origen permitido, peticiones sin origen, solo JSON, lectura sin efectos, CORS, atributos de las cookies |
 
-Los escenarios se validaron con el analizador oficial de Gherkin (`@cucumber/gherkin` 42.0.1) en un directorio temporal fuera del repositorio: los diez archivos se leen sin errores y se reconocen como `es`.
+Los escenarios se validaron con el analizador oficial de Gherkin (`@cucumber/gherkin` 42.0.1) en un directorio temporal fuera del repositorio: los once archivos se leen sin errores y se reconocen como `es`.
 
 ### Cómo se relacionan con OWASP y con la privacidad
 
@@ -158,7 +159,7 @@ Los escenarios se validaron con el analizador oficial de Gherkin (`@cucumber/ghe
 | A01 Control de acceso roto | `05` (matriz por rol, IDOR, asignación masiva), `07` (solo administrador) |
 | A02 Fallas criptográficas | `01` (hash argon2id, contraseña fuera de los registros), `03` (cookies seguras) |
 | A03 Inyección | `08` (texto con caracteres especiales, contenido con script), `10` (script en mensajes, inyección de encabezados de correo) |
-| A04 Diseño inseguro | `03` (rotación y reutilización de tokens), `01` y `02` (límites) |
+| A04 Diseño inseguro | `03` (rotación y reutilización de tokens, tope de sesión, rechazo si Redis cae), `01` y `02` (límites), `11` (CSRF) |
 | A07 Fallas de autenticación | `01`, `02`, `03`, `04` (política, bloqueo, límites, mensajes uniformes) |
 | A09 Registro y monitoreo | `05` (rechazos registrados), `07` (decisiones auditadas) |
 | Privacidad (LFPDPPP) | `01` (aviso aceptado y su constancia), `06` (rectificación y cancelación), `10` (aviso accesible) |
@@ -181,7 +182,9 @@ Cada número de estos escenarios es una **decisión**, no un dato descubierto. E
 | Vigencia del enlace de recuperación | 1 hora | Es un enlace sensible; vida corta |
 | Recuperaciones por hora | 3 | Igual |
 | Vida del token de acceso | Corta (valor exacto en el diseño) | Limita el daño si se roba |
-| Vida de la sesión (token de renovación) | 7 días | Sesión razonable sin pedir contraseña a diario |
+| Vida de la sesión por inactividad (token de renovación) | **1 hora** | Una sesión abandonada se cierra sola. Cambiado el 11-oct-2026 desde 7 días, por decisión de quien mantiene el proyecto. En la práctica tolera entre 45 y 60 minutos sin usar la web (ver [09](09-phase-1-data-and-auth-design.md)) |
+| Duración máxima de la sesión | **7 días** | Aunque se use sin parar, hay que volver a iniciar sesión. Sin este tope, la sesión sería indefinida |
+| Si Redis no está disponible | Las rutas protegidas por el limitador (registro, inicio de sesión, reenvíos, recuperación y contacto) se rechazan con un error temporal | Sin el contador de intentos no hay defensa contra la fuerza bruta. El catálogo, la renovación de sesión y las rutas autenticadas no usan el limitador y siguen funcionando |
 | Cuenta sin verificar | No puede iniciar sesión | Más simple y seguro que un modo limitado |
 | Mensajes de error de credenciales | Siempre iguales, sin distinguir causa | Evita la enumeración de cuentas |
 | Recurso ajeno | Misma respuesta que si no existiera | Evita revelar qué identificadores existen |
@@ -191,9 +194,23 @@ Cada número de estos escenarios es una **decisión**, no un dato descubierto. E
 | Cancelación de cuenta | Elimina o anonimiza datos personales | Derecho de Cancelación (ARCO) |
 | Zonas | A nivel de municipio o alcaldía | Granularidad suficiente para la primera versión |
 
-Dos preguntas abiertas que dejé sin resolver a propósito:
-1. **¿Qué se conserva al cancelar una cuenta de proveedor?** En la fase 4 habrá facturas, que la ley fiscal obliga a conservar. Cuando lleguemos a ese punto, habrá que decidir cómo convive eso con el derecho de cancelación. Por ahora el escenario dice "eliminan o anonimizan".
-2. **¿Cómo se ordena la búsqueda por relevancia?** Hoy es por nombre. Mejorarlo queda para después.
+### 5.1 Decisiones tomadas después de aprobar estos supuestos
+
+Al diseñar ([09](09-phase-1-data-and-auth-design.md)) aparecieron huecos en los escenarios. Se resolvieron así:
+
+| Hueco | Decisión |
+|---|---|
+| `05` hablaba de "un servicio" de un proveedor, pero ningún otro escenario describe servicios | **No existe la entidad Servicio en la fase 1.** El escenario ahora usa "perfil de proveedor" |
+| `pending` significaba a la vez "recién registrado" y "esperando al administrador" | Se añade el campo `reviewRequestedAt`. La lista del administrador son los `pending` con esa fecha. Se añadieron dos escenarios a `07` y se aclaró su Antecedentes |
+| La sesión no tenía tope: con renovaciones constantes duraría siempre | 1 hora de inactividad y **7 días como tope absoluto** (dos escenarios nuevos en `03`) |
+| ¿Qué hacer si Redis cae? | Rechazar la autenticación con un error temporal (un escenario nuevo en `03`) |
+| Las cookies de sesión exigen protección contra CSRF | Característica nueva `11` |
+
+### 5.2 Pregunta abierta
+
+**¿Cómo se ordena la búsqueda por relevancia?** Hoy es por nombre. Mejorarlo queda para después.
+
+**Facturación.** Se retiró de **todo** el proyecto el 11-oct-2026 por decisión de quien lo mantiene. Ya no existe la pregunta sobre qué conservar de una cuenta de proveedor por motivos fiscales. Cancelar una cuenta sigue **anonimizando** y no borrando la fila, porque el registro de auditoría y las decisiones del administrador apuntan a usuarios.
 
 ## 6. Alternativas descartadas
 
@@ -227,7 +244,7 @@ Esperado: `# language: es` en cada uno.
 ```bash
 grep -ceE '^\s*(Escenario|Esquema del escenario):' docs/features/*.feature
 ```
-Esperado: la suma es 102.
+Esperado: la suma es 119.
 
 **d) Revisión humana.** La única comprobación que importa de verdad: lee cada archivo y pregúntate si describe lo que quieres. Si un escenario te sorprende, es una decisión que aún no tomaste.
 
@@ -238,7 +255,7 @@ Esperado: la suma es 102.
 - **Un valor en una tabla debe ser un valor real.** Se detectaron y corrigieron dos filas de ejemplo que contenían descripciones en lugar de datos ("129 caracteres cualquiera"); se reescribieron como escenarios.
 - **Mantenerlos al día.** Si cambia una decisión (por ejemplo, el tiempo de bloqueo), hay que cambiarla aquí y en las pruebas. Un escenario desactualizado es peor que no tenerlo.
 - **Demasiado detalle.** Si empiezas a escribir escenarios sobre píxeles o colores, estás escribiendo diseño. Eso va aparte, y se pospuso.
-- **Demasiados escenarios.** 102 son muchos para una fase; algunos podrían moverse a pruebas unitarias cuando llegue el momento. Se decidirá al implementar.
+- **Demasiados escenarios.** 119 son muchos para una fase; algunos podrían moverse a pruebas unitarias cuando llegue el momento. Se decidirá al implementar.
 - **El diseño visual está pospuesto.** Se decidió no hacer diseño visual (Figma) en esta etapa. Los escenarios `@a11y` describen comportamiento accesible, no apariencia.
 
 ## 9. Para repetirlo en otro proyecto
