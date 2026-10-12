@@ -2,7 +2,7 @@
 
 PR: `feat/api-base`. Archivos nuevos: `apps/api/`. Cambios en `pnpm-lock.yaml`.
 
-> **Estado: en construcción.** Este documento se completa paso a paso, en el mismo PR que el código. Cubre hasta el paso 6 (configuración validada y primeras pruebas). Las secciones de configuración, logs, `Clock`, `/health` y pruebas se añaden al cerrar cada paso.
+> **Estado: en construcción.** Este documento se completa paso a paso, en el mismo PR que el código. Cubre hasta el paso 7 (reloj inyectable). Las secciones de configuración, logs, `Clock`, `/health` y pruebas se añaden al cerrar cada paso.
 
 ## 1. Objetivo
 
@@ -43,6 +43,13 @@ Crear la aplicación `apps/api` con NestJS 12: un esqueleto que compila, arranca
 | **SWC** | Compilador de TypeScript muy rápido que, a diferencia del de Vitest por defecto, conserva la metadata de decoradores |
 | **Cobertura (coverage)** | Porcentaje del código que ejecutaron las pruebas |
 | **`*.spec.ts`** | Nombre convencional de un archivo de pruebas, junto al código que prueba |
+| **Clase abstracta** | Clase que declara qué métodos existen sin implementarlos. No se instancia: otras clases la extienden |
+| **Token de inyección** | La "etiqueta" con la que Nest identifica qué entregar cuando una clase pide una dependencia |
+| **Provider** | Algo que Nest sabe construir y entregar |
+| **`useClass`** | "Cuando alguien pida este token, entrega una instancia de esta clase" |
+| **Módulo global (`@Global`)** | Sus providers están disponibles en toda la app sin importar el módulo en cada sitio |
+| **Reloj falso (fake)** | Versión de `Clock` para pruebas cuya hora se controla y se puede adelantar |
+| **`override`** | Marca que un método reemplaza al de la clase padre. `noImplicitOverride` obliga a escribirlo |
 
 ## 3. Qué se hizo, paso a paso
 
@@ -383,6 +390,145 @@ Cambios en los `tsconfig`:
 
 **La prueba demuestra que detecta fallos.** Al cambiar temporalmente `.min(1)` por `.min(0)`, fallaron exactamente las pruebas de los puertos `""` y `"0"`, las únicas que dependen de ese límite. Al deshacerlo, volvieron las 9 a verde.
 
+### Paso 7. El reloj inyectable (`Clock`)
+
+**El problema.** Docs/09 define reglas con tiempo: sesión que caduca tras 1 hora de inactividad, bloqueos de 15 minutos, verificaciones de 24 horas. Si el código llama a `new Date()` en medio de la lógica, la única forma de probar "pasó una hora" es esperar una hora. Si pide la hora a un `Clock`, las pruebas inyectan un reloj falso y lo adelantan a voluntad.
+
+```bash
+pnpm add -F @manos/api -D --save-exact @nestjs/testing@12.1.3
+```
+
+`@nestjs/testing` aporta `Test.createTestingModule`, que arma una mini-aplicación Nest para la prueba.
+
+`apps/api/src/common/clock.ts`:
+
+```ts
+export abstract class Clock {
+  abstract now(): Date;
+}
+
+export class SystemClock extends Clock {
+  override now(): Date {
+    return new Date();
+  }
+}
+```
+
+`apps/api/src/common/clock.module.ts`:
+
+```ts
+import { Global, Module } from '@nestjs/common';
+
+import { Clock, SystemClock } from './clock.js';
+
+@Global()
+@Module({
+  providers: [{ provide: Clock, useClass: SystemClock }],
+  exports: [Clock],
+})
+export class ClockModule {}
+```
+
+`apps/api/src/app.module.ts` importa `ClockModule` en su lista `imports`, junto a `ConfigModule`.
+
+`apps/api/src/common/clock.spec.ts`:
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { describe, expect, it } from 'vitest';
+
+import { Clock, SystemClock } from './clock.js';
+import { ClockModule } from './clock.module.js';
+
+class FakeClock extends Clock {
+  constructor(private current: Date) {
+    super();
+  }
+
+  override now(): Date {
+    return new Date(this.current);
+  }
+
+  advance(milliseconds: number): void {
+    this.current = new Date(this.current.getTime() + milliseconds);
+  }
+}
+
+@Injectable()
+class ExpiryChecker {
+  constructor(private readonly clock: Clock) {}
+
+  isExpired(expiresAt: Date): boolean {
+    return this.clock.now().getTime() >= expiresAt.getTime();
+  }
+}
+
+const HOUR = 60 * 60 * 1000;
+
+describe('SystemClock', () => {
+  it('returns the current time', () => {
+    const before = Date.now();
+    const now = new SystemClock().now().getTime();
+    const after = Date.now();
+
+    expect(now).toBeGreaterThanOrEqual(before);
+    expect(now).toBeLessThanOrEqual(after);
+  });
+});
+
+describe('ClockModule', () => {
+  it('provides the system clock by default', async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [ClockModule],
+    }).compile();
+
+    expect(moduleRef.get(Clock)).toBeInstanceOf(SystemClock);
+  });
+
+  it('lets a test replace the clock and move time forward', async () => {
+    const fake = new FakeClock(new Date('2026-01-01T10:00:00Z'));
+    const moduleRef = await Test.createTestingModule({
+      imports: [ClockModule],
+      providers: [ExpiryChecker],
+    })
+      .overrideProvider(Clock)
+      .useValue(fake)
+      .compile();
+    const checker = moduleRef.get(ExpiryChecker);
+    const expiresAt = new Date('2026-01-01T11:00:00Z');
+
+    expect(checker.isExpired(expiresAt)).toBe(false);
+
+    fake.advance(HOUR);
+
+    expect(checker.isExpired(expiresAt)).toBe(true);
+  });
+});
+```
+
+| Parte | Qué hace |
+|---|---|
+| `abstract class Clock` | Declara que cualquier reloj tiene un `now()` que devuelve una fecha, sin decir cómo |
+| `SystemClock` | El reloj real |
+| `{ provide: Clock, useClass: SystemClock }` | Cuando alguien pida `Clock`, Nest entrega un `SystemClock` |
+| `exports: [Clock]` | Hace visible el provider fuera del módulo |
+| `new Date(this.current)` | Devuelve una copia: un `Date` es mutable y no debe poder alterarse desde fuera |
+| `ExpiryChecker` | Clase mínima que recibe un `Clock` por constructor. Imita lo que harán las sesiones reales |
+| `.overrideProvider(Clock).useValue(fake)` | En la prueba, sustituye el reloj real por el falso |
+| `fake.advance(HOUR)` | "Pasa una hora" sin esperar |
+| `new Date('...Z')` | La `Z` indica UTC: la prueba da igual en cualquier zona horaria (ver 09, fechas en UTC) |
+
+**Esta prueba también valida SWC.** Si no se generara la metadata de decoradores, Nest no sabría que `ExpiryChecker` necesita un `Clock` y fallaría con `Nest can't resolve dependencies`.
+
+**Decisiones de diseño.**
+
+- **Clase abstracta en lugar de interfaz.** Las interfaces de TypeScript desaparecen al compilar, así que Nest no puede usarlas como token: habría que inventar un `Symbol` y escribir `@Inject(SIMBOLO)` en cada uso. Una clase abstracta existe en tiempo de ejecución y sirve directamente como token.
+- **Módulo global.** `Clock` se usará en casi todos los módulos (sesiones, límites, verificación). Importarlo en cada uno solo añade ruido.
+- **`now()` devuelve un `Date` nuevo cada vez**, para que nadie modifique el estado interno del reloj.
+- **El reloj falso vive en el archivo de pruebas.** Solo hay un uso. Se moverá a un archivo compartido cuando haya un segundo (YAGNI), probablemente con los escenarios de sesión.
+- **Ubicación en `src/common/`**, según docs/09, sección 9.
+
 ## 4. Alternativas descartadas
 
 | Alternativa | Por qué no |
@@ -399,6 +545,10 @@ Cambios en los `tsconfig`:
 | Validar `process.env` a mano, sin `@nestjs/config` | Se perdería `ConfigService` y su inyección (ver 08, decisión 10) |
 | `class-validator` para validar la configuración | Ya se eligió Zod para validar en toda la API (ver 08, decisión 3) |
 | `globals: true` en Vitest | Obliga a añadir tipos globales al `tsconfig` y oculta de dónde viene cada función |
+| Llamar a `new Date()` directamente | No se puede probar el paso del tiempo sin esperarlo |
+| Falsear el tiempo con `vi.useFakeTimers()` | Funciona para pruebas unitarias, pero no sirve para los escenarios de aceptación ni deja la hora como dependencia explícita |
+| Interfaz `Clock` con un `Symbol` como token | Obliga a escribir `@Inject(SIMBOLO)` en cada uso. La clase abstracta es su propio token |
+| Mover `FakeClock` a un archivo compartido ahora | Hay un solo uso (YAGNI) |
 | Jest en lugar de Vitest | Vitest es el ejecutor por defecto de los proyectos ESM de Nest 12 (ver 08, decisión 1) |
 
 ## 5. Cómo verificar
@@ -447,6 +597,7 @@ Esperado:
 - `test:cov` muestra 100% en `env.schema.ts`. La carpeta `coverage/` está en `.gitignore`.
 - `dist/config` contiene `env.schema.js` y su `.map`, **sin ningún `.spec.js`**.
 - `pnpm test` desde la raíz ejecuta las pruebas a través de Turbo. En la segunda ejecución, Turbo las toma de la caché (`FULL TURBO`).
+- **Prueba del `Clock` (paso 7):** `test` muestra `2 passed` en archivos y `12 passed` en pruebas. `dist/common` contiene `clock.js` y `clock.module.js`, sin ningún `.spec.js`. `pnpm lint:root` no da errores y la API sigue arrancando con `ClockModule` cargado.
 - **Prueba que falla a propósito:** cambiar `.min(1)` por `.min(0)` en el esquema hace fallar las pruebas de los puertos `""` y `"0"`. Debe deshacerse el cambio después.
 
 ## 6. Trampas conocidas
@@ -464,6 +615,10 @@ Esperado:
 - **`Cannot find package '@swc/core'`.** Falta instalarlo: es peer dependency de `unplugin-swc`.
 - **`vitest.config.ts` rompe `pnpm build`.** Ocurre si `tsconfig.build.json` no sustituye el `include` heredado: el archivo queda fuera de `rootDir`.
 - **Una prueba que nunca falla no demuestra nada.** Conviene romper el código a propósito una vez y comprobar que la prueba lo detecta.
+- **`import type { Clock }` rompe la inyección.** Un `import type` se borra al compilar y Nest necesita la clase real en tiempo de ejecución: falla con `Nest can't resolve dependencies`. Las clases que se inyectan por constructor se importan con `import` normal (efecto de `verbatimModuleSyntax`).
+- **Olvidar `override`.** `noImplicitOverride` exige marcar el método que reemplaza al de la clase padre.
+- **`Nest can't resolve dependencies of the ExpiryChecker`.** Falta `providers: [ExpiryChecker]` en el módulo de prueba o falta `@Injectable()`.
+- **`export class ClockModule { }` con un espacio dentro de las llaves.** `prettier --check` lo marca; el formato correcto es `{}`. Las clases vacías con decorador son habituales en Nest y es fácil escribirlas con espacio.
 - **JSON roto en `package.json`.** Una coma de más o de menos al añadir `scripts`. pnpm lo señala con `ERR_PNPM_JSON_PARSE`.
 - **`nodenext` con `Bundler`.** TypeScript da error si se mezclan. Hay que cambiar `module` y `moduleResolution` a la vez.
 - **`verbatimModuleSyntax` y decoradores.** Las clases que se inyectan por constructor deben importarse con `import`, **no** con `import type`, porque Nest necesita el valor en tiempo de ejecución.

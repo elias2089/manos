@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
+import { ClockModule } from './common/clock.module.js';
 import { validateEnv } from './config/env.schema.js';
 
 @Module({
@@ -11,6 +12,7 @@ import { validateEnv } from './config/env.schema.js';
       envFilePath: '../../.env',
       validate: validateEnv,
     }),
+    ClockModule,
   ],
 })
 export class AppModule {}
