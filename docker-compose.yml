@@ -55,6 +55,25 @@ services:
       timeout: 3s
       retries: 10
 
+  mailpit:
+    # Test mail server: it receives every email and delivers none.
+    # Read the messages at http://127.0.0.1:8025
+    image: axllent/mailpit:v1.31.5@sha256:94f6b70c1436defae6799d9ac7ff0eeff9540465b842026d5cdb018f1c0234ea
+    restart: unless-stopped
+    ports:
+      # SMTP: where the API sends mail
+      - '127.0.0.1:1025:1025'
+      # Web interface and API: where the messages are read
+      - '127.0.0.1:8025:8025'
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # The image has no shell, so the exec form is required (CMD-SHELL would fail)
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   postgres_data:
   redis_data:
