@@ -20,6 +20,14 @@ Los documentos llevan un prefijo numérico: el orden es el de ejecución. Para r
 | [10-api-base.md](10-api-base.md) | Esqueleto de la API con NestJS 12: paquete, dependencias exactas, `tsconfig` para ESM con `nodenext`, configuración, registros con redacción, `Clock` y `/health`, con las pruebas de cada pieza |
 | [11-prisma-and-mailpit.md](11-prisma-and-mailpit.md) | Base de datos y correo local: Mailpit en el compose, Prisma con PostgreSQL, el modelo de datos de 09, la primera migración, los datos iniciales y las pruebas contra la base (en construcción) |
 
+## Arquitectura (referencia)
+
+Documentos que **no** siguen el orden de ejecución: describen cómo encaja todo y se actualizan al cerrar cada PR.
+
+| Documento | Contenido |
+|---|---|
+| [architecture/backend.md](architecture/backend.md) | Las capas del backend, de la petición HTTP a la base de datos: qué hace cada herramienta, su estado y el viaje de una petición |
+
 ## Cómo se mantiene
 
 - Cada paso o decisión técnica se documenta en el mismo commit que lo implementa.

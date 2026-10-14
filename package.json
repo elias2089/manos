@@ -19,7 +19,8 @@
     "services:up": "docker compose up -d --wait",
     "services:down": "docker compose down",
     "services:logs": "docker compose logs -f",
-    "prepare": "husky"
+    "prepare": "husky",
+    "generate": "turbo run generate"
   },
   "lint-staged": {
     "*.{js,mjs,cjs,ts,tsx}": [
