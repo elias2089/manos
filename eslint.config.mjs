@@ -13,6 +13,7 @@ export default defineConfig([
     '**/.turbo/',
     '**/coverage/',
     'pnpm-lock.yaml',
+    '**/generated/',
   ]),
   js.configs.recommended,
   tseslint.configs.recommended,

@@ -7,6 +7,7 @@ import { HealthModule } from './health/health.module.js';
 import type { Env } from './config/env.schema.js';
 import { validateEnv } from './config/env.schema.js';
 import { buildLoggerParams } from './config/logger.config.js';
+import { PrismaModule } from './prisma/prisma.module.js';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { buildLoggerParams } from './config/logger.config.js';
         buildLoggerParams(config.get('LOG_LEVEL', { infer: true })),
     }),
     ClockModule,
+    PrismaModule,
     HealthModule,
   ],
 })

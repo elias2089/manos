@@ -1,0 +1,436 @@
+# 11. Prisma y Mailpit: base de datos y correo local
+
+PR: `feat/prisma-and-mailpit`. Cambios en `docker-compose.yml`, `apps/api/` (`prisma/`, `src/prisma/`, `prisma.config.ts`, configuración y pruebas), `turbo.json`, el `package.json` raíz, `eslint.config.mjs`, `.gitignore`, `.prettierignore` y `.env.example`. Más adelante: `.github/workflows/ci.yml`.
+
+> **Estado: en construcción.** Este documento crece con cada commit del PR. Hoy cubre los pasos 1 a 4 (Mailpit, Prisma instalado, `DATABASE_URL` y la conexión). Al cerrar el PR se completan las secciones de pendientes y de cómo repetirlo, y se quita este aviso.
+
+## 1. Objetivo
+
+Que la API se conecte a PostgreSQL con Prisma, que la base tenga las tablas diseñadas en 09 con su primera migración, que carguen los datos iniciales (ocho categorías y las 16 alcaldías de la Ciudad de México) y que los correos de prueba se puedan leer en Mailpit.
+
+Orden de los commits:
+
+| # | Commit | Qué queda funcionando |
+|---|---|---|
+| 1 | Mailpit en el compose | Se envía un correo de prueba por SMTP y se lee en el navegador |
+| 2 | Prisma y conexión a PostgreSQL | La API arranca conectada a la base |
+| 3 | Modelo de datos y primera migración | Las tablas existen en la base |
+| 4 | Datos iniciales | Categorías y alcaldías, ejecutables varias veces sin duplicar |
+| 5 | Pruebas contra la base | Pruebas con un PostgreSQL real, también en la CI |
+| 6 | Documentación | Este documento completo y las correcciones de 08 y 09 |
+| 7 | Cucumber | La prueba mínima del riesgo aplazado desde el PR 1, al final del PR |
+
+**Decisiones del PR.** Un solo PR, no dos encadenados, como el PR 1: se revisa commit a commit. Ocho categorías iniciales: Plomería, Electricidad, Limpieza, Pintura, Carpintería, Jardinería, Cerrajería y Aire acondicionado.
+
+## 2. Glosario
+
+| Término | Significado |
+|---|---|
+| **SMTP** | El protocolo con el que los programas **envían** correo. Es como el cartero que recoge el sobre |
+| **Servidor de correo** | Programa que recibe esos correos y los entrega. Los reales los mandan al destinatario de verdad |
+| **Mailpit** | Servidor de correo **falso**, solo para desarrollo: recibe todo, no entrega nada y muestra los mensajes en una página web local |
+| **Puerto 1025 y puerto 8025** | El 1025 es donde la API entrega los correos (SMTP). El 8025 es la página web y una API para leerlos |
+| **Imagen *scratch*** | Imagen que contiene solo un binario, sin `sh` ni utilidades. La de Mailpit es así |
+| **Forma exec** | Escribir un comando como lista (`['CMD', '/mailpit', 'readyz']`) en lugar de una cadena que interpreta un shell |
+| **Digest** | El hash `sha256:...` que hace inmutable una imagen, a diferencia de una etiqueta (tag) |
+| **Healthcheck** | Comando que Docker ejecuta cada pocos segundos para saber si el servicio funciona de verdad |
+| **ORM** | Librería que traduce entre el código y la base de datos. Se escribe `prisma.user.findUnique(...)` y ella genera el SQL, con consultas parametrizadas que protegen contra inyección SQL (OWASP A03) |
+| **Esquema de Prisma (`schema.prisma`)** | El archivo donde se describen las tablas. De él salen el cliente y las migraciones |
+| **Cliente generado** | Código TypeScript que Prisma escribe a partir del esquema. En la versión 7 se escribe dentro del proyecto (`src/generated/`), no en `node_modules` |
+| **Generador (`generator`)** | El bloque del esquema que dice cómo y dónde generar el cliente |
+| **Adaptador de driver (`@prisma/adapter-pg`)** | En Prisma 7 el cliente no trae su propio motor: se conecta a PostgreSQL a través del driver `pg` mediante este adaptador |
+| **Migración** | Archivo SQL versionado que cambia la estructura de la base |
+| **`prisma.config.ts`** | La configuración del **CLI** de Prisma: dónde está el esquema, dónde van las migraciones y cuál es la URL de la base |
+| **`process.loadEnvFile`** | Función de Node que carga un archivo `.env` en `process.env`. Prisma 7 no carga el `.env` por sí solo |
+| **URL de conexión** | Una cadena con todo lo necesario para llegar a la base: `postgresql://usuario:contraseña@host:puerto/base` |
+| **Porcentaje-codificar** | Escribir caracteres como `@`, `/`, `#` o `:` de una contraseña como `%40`, `%2F`, `%23` y `%3A` para que la URL se interprete bien |
+| **Conexión perezosa (*lazy*)** | El cliente no se conecta hasta la primera consulta |
+| **Fail fast** | Que un fallo de infraestructura detenga la API antes de aceptar tráfico, no en mitad de una petición |
+| **Ciclo de vida (`OnModuleInit`, `OnModuleDestroy`)** | Métodos que Nest ejecuta solos al arrancar y al cerrar un módulo |
+| **`enableShutdownHooks`** | Hace que Nest cierre los módulos ordenadamente al recibir `SIGTERM` o `Ctrl+C` |
+| **Tarea de Turbo (`generate`)** | Un paso con nombre que Turbo ejecuta antes de otros, para que `typecheck`, `build` y `test` siempre tengan el cliente generado |
+
+## 3. Qué se hizo, paso a paso
+
+### Paso 1. Mailpit en el compose
+
+```bash
+git switch -c feat/prisma-and-mailpit
+```
+
+`docker-compose.yml`, servicio nuevo después de `redis` y antes de `volumes:`:
+
+```yaml
+  mailpit:
+    # Test mail server: it receives every email and delivers none.
+    # Read the messages at http://127.0.0.1:8025
+    image: axllent/mailpit:v1.31.5@sha256:94f6b70c1436defae6799d9ac7ff0eeff9540465b842026d5cdb018f1c0234ea
+    restart: unless-stopped
+    ports:
+      # SMTP: where the API sends mail
+      - '127.0.0.1:1025:1025'
+      # Web interface and API: where the messages are read
+      - '127.0.0.1:8025:8025'
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # The image has no shell, so the exec form is required (CMD-SHELL would fail)
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+```
+
+| Parte | Qué hace |
+|---|---|
+| `image: ...@sha256:...` | Fija versión legible (`v1.31.5`) e imagen inmutable (digest) |
+| `restart: unless-stopped` | Se reinicia si falla, salvo que se detenga a propósito |
+| `127.0.0.1:1025:1025` | Publica el puerto 1025 del contenedor solo en la máquina local |
+| `no-new-privileges` | El proceso no puede ganar privilegios adicionales |
+| `['CMD', '/mailpit', 'readyz']` | Ejecuta `/mailpit readyz` cada 5 s: sale con código 0 si el servidor responde |
+| Sin `volumes` ni `environment` | No hay nada que guardar ni que configurar |
+
+**Qué se comprobó de la imagen** (descargada con su digest e inspeccionada):
+
+| Dato | Resultado |
+|---|---|
+| Versión | `v1.31.5`, la última (publicada el 11-oct-2026), según la API de releases de GitHub |
+| Digest | `sha256:94f6b70c…234ea`, obtenido con `docker buildx imagetools inspect` |
+| Entrada y puertos | Entrypoint `/mailpit`; puertos 1025 (SMTP), 8025 (web) y 1110 (POP3, que no se usa) |
+| Healthcheck | La imagen ya trae `/mailpit readyz`; se declara también en el compose por coherencia con los otros servicios |
+| Shell | No tiene: de ahí la forma exec |
+
+**Decisiones de diseño.**
+
+- **Puertos solo en `127.0.0.1`**, como PostgreSQL y Redis. Sin eso, Docker los expondría a toda la red.
+- **Sin volumen.** Los correos de prueba son desechables: se pierden al recrear el contenedor.
+- **Sin variables en `.env`.** Mailpit no necesita credenciales en desarrollo. Las variables del correo llegarán con el módulo de correo (PR 3).
+- **Healthcheck explícito**, aunque la imagen ya trae uno: deja el intervalo visible y `pnpm services:up` espera a que esté sano.
+- **Solo `no-new-privileges` como endurecimiento**, igual que los demás servicios. Es una herramienta local de desarrollo.
+
+### Paso 2. Instalar Prisma y generar el cliente
+
+```bash
+pnpm add -F @manos/api --save-exact @prisma/client@7.10.0 @prisma/adapter-pg@7.10.0 pg@8.23.1
+pnpm add -F @manos/api -D --save-exact prisma@7.10.0 @types/pg@8.23.1
+```
+
+`prisma` es el CLI (solo desarrollo); `@prisma/client` y el adaptador van a producción. La etiqueta `latest` del paquete `prisma` apunta a `8.0.0-rc.22`, un candidato a release: se fija la 7.10.0 exacta, y el aviso que imprime el CLI sugiriendo `prisma@latest` se ignora.
+
+`apps/api/prisma/schema.prisma`:
+
+```prisma
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+```
+
+`apps/api/prisma.config.ts` (en la raíz del paquete, **no** dentro de `prisma/`):
+
+```ts
+import { existsSync } from 'node:fs';
+
+import { defineConfig } from 'prisma/config';
+
+// Prisma 7 does not load .env files. The path is relative to the working directory
+// (apps/api when run with pnpm -F), the same one ConfigModule reads. In CI and production
+// the file does not exist and the variables come from the environment.
+if (existsSync('../../.env')) {
+  process.loadEnvFile('../../.env');
+}
+
+const url = process.env['DATABASE_URL'];
+
+export default defineConfig({
+  schema: 'prisma/schema.prisma',
+  migrations: { path: 'prisma/migrations' },
+  // exactOptionalPropertyTypes: an undefined url must be left out, not set to undefined
+  ...(url ? { datasource: { url } } : {}),
+});
+```
+
+Otros cambios del paso:
+
+- `apps/api/package.json`: script `"generate": "prisma generate"`.
+- `apps/api/tsconfig.json`: `"include": ["src", "vitest.config.ts", "prisma.config.ts"]`. `tsconfig.build.json` conserva su `include: ["src"]`.
+- Se ignora el cliente generado (`apps/api/src/generated/`) en `.gitignore` y `.prettierignore`, y `'**/generated/'` en `globalIgnores` de `eslint.config.mjs`.
+
+| Parte | Qué hace |
+|---|---|
+| `provider = "prisma-client"` | El generador moderno de Prisma 7 (sin `-js` al final) |
+| `output` | Dónde escribe el cliente. Es **obligatorio**; la ruta es relativa al esquema |
+| `moduleFormat = "esm"` e `importFileExtension = "js"` | Módulos ES con imports terminados en `.js`, como exige `nodenext` |
+| `datasource` sin `url` | En Prisma 7 la URL vive en `prisma.config.ts` |
+| `existsSync` + `loadEnvFile` | Carga el `.env` de la raíz solo si existe, sin instalar `dotenv` y sin un `catch` vacío |
+| `...(url ? { datasource: { url } } : {})` | Con `exactOptionalPropertyTypes` no se puede asignar `undefined` a `url`; se omite el bloque entero |
+
+**Qué se probó antes de escribirlo** (en un proyecto desechable fuera del repositorio, con las mismas banderas estrictas):
+
+| Punto sin verificar de 09 | Resultado |
+|---|---|
+| `@db.Timestamptz(3)` y `@default(uuid(7))` en 7.10.0 | Válidos |
+| `datasource` sin `url` | Funciona; la URL va en `prisma.config.ts` |
+| El cliente generado frente a `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`... | Compila sin errores: los archivos generados llevan `// @ts-nocheck` y `/* eslint-disable */` |
+| `prisma generate` sin modelos y sin `DATABASE_URL` | Funciona (importa para la CI) |
+| `prisma migrate` sin URL | Falla con un mensaje claro: `The datasource.url property is required` |
+| `url: process.env['DATABASE_URL']` | **No compila** con `exactOptionalPropertyTypes` (`TS2375`): de ahí el `spread` condicional |
+
+**Decisiones de diseño.**
+
+- **`process.loadEnvFile` en lugar de `dotenv`:** sin dependencia nueva y con la misma ruta que `ConfigModule`.
+- **El cliente generado no se versiona:** es código derivado del esquema y se regenera.
+- **Esquema sin modelos en este paso:** los modelos llegan con la migración.
+
+### Paso 3. `DATABASE_URL` en la configuración validada
+
+`apps/api/src/config/env.schema.ts` añade al esquema:
+
+```ts
+  DATABASE_URL: z.url({
+    protocol: /^postgres(ql)?$/,
+    error: 'Expected a PostgreSQL URL like postgresql://user:password@host:5432/database',
+  }),
+```
+
+`.env.example`, bajo la sección de la API (en el `.env` local va la misma línea con los valores reales):
+
+```
+# PostgreSQL connection URL. The user, password and database must match POSTGRES_* above.
+# Use 127.0.0.1, not localhost: the compose file publishes the port on IPv4 only.
+DATABASE_URL=postgresql://manos:change-me@127.0.0.1:5432/manos
+```
+
+`apps/api/src/config/env.schema.spec.ts` parte ahora de una configuración mínima válida (`validConfig`, con una contraseña de prueba larga y única, `secret-db-password`) y añade cuatro casos: `DATABASE_URL` obligatoria, tres URL inválidas (`mysql://...`, `not a url` y cadena vacía) y que **el mensaje de error nunca contiene la contraseña**:
+
+```ts
+  it('never prints the password of an invalid database URL', () => {
+    const invalid = { ...validConfig, DATABASE_URL: `mysql://manos:${SECRET}@127.0.0.1:3306/manos` };
+
+    expect(() => validateEnv(invalid)).toThrow(
+      expect.objectContaining({ message: expect.not.stringContaining(SECRET) }),
+    );
+  });
+```
+
+| Parte | Qué hace |
+|---|---|
+| `z.url({ protocol })` | Exige una URL bien formada con protocolo `postgres` o `postgresql` |
+| `error: '...'` | Mensaje propio, más útil que `Invalid URL`; el ejemplo lleva valores de relleno y nunca el valor recibido |
+| `expect.objectContaining({ message: expect.not.stringContaining(SECRET) })` | Exige que **lance** un error **cuyo mensaje no contiene** la contraseña. Si no lanzara, la prueba también fallaría |
+
+Con la variable nueva, las pruebas del esquema pasan de 11 a 16 y el total, de 20 a 25.
+
+**Decisión de diseño: la contraseña, duplicada.** La contraseña queda en dos sitios del `.env`: `POSTGRES_PASSWORD` (que lee Docker para crear la base) y dentro de `DATABASE_URL` (que lee la API).
+
+| Opción | Cómo | Por qué sí o no |
+|---|---|---|
+| **A. Una `DATABASE_URL` completa** (elegida) | Se escribe la URL entera en el `.env` | Es lo que existe en producción: las plataformas entregan una sola `DATABASE_URL`. El código funciona igual en local y en producción. Coste: la contraseña aparece dos veces |
+| B. Construir la URL en el código con `POSTGRES_*` | La API compone la URL a partir de variables sueltas | Una sola copia, pero hay que codificar bien la contraseña, dos sitios construyen la URL (la API y `prisma.config.ts`) y en producción habría que inventar las variables sueltas |
+
+Para que no diverjan, `.env.example` lleva un comentario que dice que la contraseña debe coincidir.
+
+### Paso 4. `PrismaService`, el módulo y la tarea `generate` de Turbo
+
+`apps/api/src/prisma/prisma.service.ts`:
+
+```ts
+import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PrismaPg } from '@prisma/adapter-pg';
+
+import type { Env } from '../config/env.schema.js';
+import { PrismaClient } from '../generated/prisma/client.js';
+
+@Injectable()
+export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  constructor(config: ConfigService<Env, true>) {
+    const adapter = new PrismaPg({ connectionString: config.get('DATABASE_URL', { infer: true }) });
+    super({ adapter });
+  }
+
+  // With the pg adapter, $connect() does not open a connection. A real query makes the API
+  // fail at startup when the database is unreachable instead of at the first request.
+  async onModuleInit() {
+    await this.$queryRaw`SELECT 1`;
+  }
+
+  async onModuleDestroy() {
+    await this.$disconnect();
+  }
+}
+```
+
+`apps/api/src/prisma/prisma.module.ts`:
+
+```ts
+import { Global, Module } from '@nestjs/common';
+
+import { PrismaService } from './prisma.service.js';
+
+@Global()
+@Module({
+  providers: [PrismaService],
+  exports: [PrismaService],
+})
+export class PrismaModule {}
+```
+
+`apps/api/src/app.module.ts` importa `PrismaModule` en `imports`, entre `ClockModule` y `HealthModule`. `apps/api/src/main.ts` llama a `app.enableShutdownHooks();` justo después de `app.useLogger(...)`.
+
+`turbo.json`:
+
+```json
+{
+  "$schema": "https://turbo.build/schema.json",
+  "agentGuidance": false,
+  "tasks": {
+    "generate": {
+      "outputs": ["src/generated/**"]
+    },
+    "build": {
+      "dependsOn": ["^build", "generate"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck", "generate"]
+    },
+    "test": {
+      "dependsOn": ["^build", "generate"],
+      "outputs": ["coverage/**"]
+    }
+  }
+}
+```
+
+El `package.json` raíz añade `"generate": "turbo run generate"`.
+
+| Parte | Qué hace |
+|---|---|
+| `import { ..., type OnModuleDestroy }` | Con `verbatimModuleSyntax` las **interfaces** se importan con `type`; el ejemplo oficial de Nest, escrito sin esa bandera, no compilaría aquí |
+| `import { ConfigService }` sin `type` | Es un valor: Nest lo necesita en tiempo de ejecución para inyectarlo |
+| Código antes de `super(...)` | Permitido porque no usa `this` |
+| `$queryRaw\`SELECT 1\`` | La consulta más barata que existe: comprueba que hay base de datos |
+| `onModuleDestroy` + `$disconnect()` | Cierra el pool de conexiones al apagar |
+| `@Global()` | `PrismaService` queda disponible en toda la app sin importar el módulo cada vez |
+| `generate: { outputs }` | Turbo guarda lo que genera en su caché y lo restaura si el esquema no cambió |
+| `"dependsOn": ["^build", "generate"]` | `^build` es "primero el `build` de mis dependencias"; `generate` es "primero mi propio `generate`" |
+
+**Hallazgo: con el adaptador `pg`, `$connect()` no conecta.** Se comprobó en un proyecto desechable: contra un puerto cerrado, `$connect()` se resuelve sin error (es perezoso) y la primera consulta falla con `Can't reach database server`. El ejemplo oficial de Nest conecta solo con `$connect()`, y con este adaptador no detectaría una base caída al arrancar. Por eso `onModuleInit` hace una consulta real.
+
+**Verificado con la base caída.** Con los contenedores parados (WSL se reinició), la API **no arrancó**: error `Can't reach database server at 127.0.0.1:5432` y código de salida 1. Con una contraseña incorrecta, el error es `password authentication failed for user "manos"` (código `28P01`). En ninguno de los dos casos aparece la URL ni la contraseña en la salida.
+
+**Decisiones de diseño.**
+
+- **`PrismaService extends PrismaClient`:** el patrón de la documentación de Nest y de Prisma 7.
+- **`@Global()`:** todo servicio de datos lo necesitará, como `ConfigModule` y `ClockModule`.
+- **La URL sale de `ConfigService`**, ya validada con Zod: no se lee `process.env` a mano.
+- **Tarea `generate` en Turbo y no un `postinstall`:** se regenera sola cuando cambia el esquema y cubre la CI sin tocar el workflow. Un `postinstall` sería redundante y haría la instalación más lenta.
+- **Desventaja conocida:** un comando directo (`pnpm -F @manos/api test`) en una instalación limpia no pasa por Turbo y no encuentra el cliente. Basta con `pnpm generate` o con cualquier script de la raíz.
+
+## 4. Alternativas descartadas
+
+| Alternativa | Por qué no |
+|---|---|
+| Un servicio real de correo en desarrollo | Enviaría correos de verdad y exigiría cuentas y credenciales |
+| `CMD-SHELL` en el healthcheck | La imagen no tiene shell: el servicio quedaría `unhealthy` para siempre |
+| Un volumen para conservar los correos | Son de usar y tirar; un volumen solo acumularía basura |
+| Usuario sin privilegios y sistema de archivos de solo lectura | Es una herramienta local; más restricciones no aportan y habría que probar que Mailpit sigue funcionando |
+| Dejar el healthcheck solo en la imagen | Funciona, pero deja el intervalo implícito y distinto al de los otros servicios |
+| Publicar los puertos sin `127.0.0.1` | Expondría el servidor de correo de pruebas a toda la red |
+| `dotenv` en `prisma.config.ts` | Una dependencia más para algo que Node 24 hace con `process.loadEnvFile` |
+| Un `catch` vacío al cargar el `.env` | Silenciaría errores reales. Se comprueba con `existsSync` |
+| Versionar el cliente generado | Es código derivado del esquema; ensuciaría los diffs y quedaría desactualizado |
+| `prisma@latest` | Apunta a `8.0.0-rc.22`, un candidato a release, no a una versión estable |
+| `prisma.config.ts` dentro de `prisma/` | Prisma 7 lo busca en la raíz del paquete: no lo carga y `migrate` no vería la URL |
+| Construir la URL de la base con `POSTGRES_*` en el código | Dos sitios que construyen la URL y variables inexistentes en producción (ver paso 3) |
+| Solo `$connect()` al arrancar | Con el adaptador `pg` no abre ninguna conexión: una base caída no se detectaría |
+| Un `postinstall` con `prisma generate` | Redundante con la tarea de Turbo y alarga cada instalación |
+| `PrismaModule` sin `@Global()` | Habría que importarlo en cada módulo de datos |
+
+## 5. Cómo verificar
+
+Desde la raíz del repositorio:
+
+```bash
+docker compose config --quiet && echo OK
+pnpm services:up
+docker compose ps
+printf 'From: Manos <no-reply@manos.local>\r\nTo: ana@example.com\r\nSubject: Prueba de Mailpit\r\n\r\nHola desde curl.\r\n' | curl -s --url smtp://127.0.0.1:1025 --mail-from no-reply@manos.local --mail-rcpt ana@example.com -T -
+curl -s 'http://127.0.0.1:8025/api/v1/messages?limit=1'
+ss -ltn | grep -E ':(1025|8025)\b'
+curl -s -X DELETE http://127.0.0.1:8025/api/v1/messages
+pnpm exec prettier --check docker-compose.yml
+```
+
+Esperado:
+
+- `docker compose config` imprime `OK`.
+- `docker compose ps` muestra `postgres`, `redis` y `mailpit` en estado `healthy`; `mailpit` publica `127.0.0.1:1025->1025/tcp` y `127.0.0.1:8025->8025/tcp`.
+- El envío por SMTP termina con código 0.
+- La API devuelve un JSON con `"Subject":"Prueba de Mailpit"` y `"Snippet":"Hola desde curl."`. En el navegador, `http://127.0.0.1:8025` muestra el mensaje.
+- `ss` muestra las dos líneas con `127.0.0.1:`, nunca `0.0.0.0:`.
+- El borrado responde `ok` y la lista queda con `"total":0`.
+- Prettier dice `All matched files use Prettier code style!`.
+
+**Pasos 2 a 4** (con los servicios arriba: `pnpm services:up`):
+
+```bash
+pnpm -F @manos/api generate
+ls apps/api/src/generated/prisma
+git check-ignore -v apps/api/src/generated/prisma/client.ts
+pnpm -F @manos/api exec prisma validate
+pnpm -F @manos/api typecheck
+pnpm -F @manos/api build
+pnpm -F @manos/api test
+pnpm lint:root
+rm -r apps/api/src/generated && pnpm typecheck
+pnpm -F @manos/api start
+```
+
+Esperado:
+
+- `generate` imprime `Loaded Prisma config from prisma.config.ts.` y `✔ Generated Prisma Client (7.10.0)`. Si falta la primera línea, el config está en la carpeta equivocada.
+- `git check-ignore` muestra la regla de `.gitignore` que ignora el cliente generado, y `git status` no lo lista.
+- `prisma validate` dice `The schema at prisma/schema.prisma is valid`.
+- `typecheck`, `build` y `lint:root` pasan sin errores. `dist/prisma` contiene `prisma.service.js` y `prisma.module.js`.
+- `test` muestra `4 passed` en archivos y `25 passed` en pruebas.
+- Tras borrar el cliente, `pnpm typecheck` desde la raíz ejecuta `@manos/api:generate` antes del `typecheck` y vuelve a crearlo. Es lo que hará la CI.
+- `start` imprime `PrismaModule dependencies initialized` y termina con `Nest application successfully started`; `GET /health` responde 200.
+- Con la URL de un protocolo distinto (`DATABASE_URL='mysql://...' pnpm -F @manos/api start`) la API no arranca y muestra `→ at DATABASE_URL`, sin la contraseña.
+- Con la base caída (`docker compose stop postgres`) la API no arranca: `Can't reach database server at 127.0.0.1:5432`, código de salida 1. Se restablece con `pnpm services:up`.
+- **Pruebas con fallo provocado:** al quitar `protocol` del esquema fallan las pruebas de `mysql://` y la de la contraseña; al hacer que el error imprima `JSON.stringify(config)`, falla solo la prueba "never prints the password".
+
+## 6. Trampas conocidas
+
+- **`CMD-SHELL` en el healthcheck de Mailpit.** La imagen no tiene shell; hay que usar la forma exec.
+- **`port is already allocated` (1025 u 8025).** Otro programa usa el puerto, por ejemplo otro capturador de correo o un contenedor anterior.
+- **Los correos desaparecen al ejecutar `pnpm services:down`.** Es intencional: no hay volumen.
+- **El digest debe copiarse exacto.** Un carácter distinto y Docker no encuentra la imagen.
+- **YAML.** La sangría es de 2 espacios y los guiones de las listas deben alinearse. Un tabulador rompe el archivo.
+- **Un `curl` de SMTP necesita `\r\n`** al final de cada línea de cabecera; con solo `\n`, algunos servidores rechazan el mensaje.
+- **Prettier no entiende `.env.example` ni `.gitignore`.** No se incluyen en `prettier --check`.
+- **`prisma.config.ts` en la carpeta equivocada.** Dentro de `prisma/` no se carga: `generate` no imprime `Loaded Prisma config` y `migrate` no ve la URL. Va junto al `package.json`.
+- **Un espacio al principio de una línea de `.gitignore`.** Forma parte del patrón, no coincide con nada y la carpeta sigue apareciendo en `git status`. Se detecta con `git check-ignore -v`.
+- **`TS2375` en `prisma.config.ts`.** Con `exactOptionalPropertyTypes` no se puede escribir `url: process.env['DATABASE_URL']`; el bloque se omite si no hay URL.
+- **El cliente no se actualiza al cambiar el esquema.** En Prisma 7, `migrate dev` no regenera el cliente: hay que ejecutar `generate`.
+- **El aviso de `prisma@latest`.** Sugiere la 8.0.0-rc: se ignora.
+- **`DATABASE_URL` ausente al actualizar el código.** La API no arranca hasta que el `.env` la tenga. Es lo esperado.
+- **Contraseña con caracteres especiales en la URL.** Deben ir codificados (`%40` para `@`...). Con `openssl rand -hex 24` no hace falta.
+- **`localhost` en lugar de `127.0.0.1`.** Puede resolver a IPv6 (`::1`), y el compose publica solo en IPv4.
+- **`Nest can't resolve dependencies of the PrismaService (?)`.** Se importó `ConfigService` con `import type`: debe ser un `import` normal.
+- **`TS1484` con `OnModuleInit` u `OnModuleDestroy`.** Las interfaces se importan con `type` por `verbatimModuleSyntax`.
+- **La API dice "arrancó" con la base apagada.** Queda solo `$connect()` en `onModuleInit`; con el adaptador `pg` no conecta.
+- **Los contenedores se paran al reiniciarse WSL.** Con `pnpm services:up` vuelven; la API no arranca mientras tanto, que es el comportamiento buscado.
+- **Turbo no ejecuta `generate`.** El nombre de la tarea o su `dependsOn` no coinciden con el script del paquete.
+- **Turbo 2 y las variables de entorno.** En modo estricto no pasa a las tareas las variables que no se declaran. Hoy ninguna tarea necesita `DATABASE_URL`; las pruebas contra la base (commit 5) sí, y entonces se declarará en `turbo.json`.
+- **`timeout` encadenado con `grep` pierde la salida.** Para capturar el arranque de la API conviene escribir el log en un archivo.

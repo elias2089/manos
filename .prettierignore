@@ -8,3 +8,6 @@ pnpm-lock.yaml
 
 # Markdown tables are aligned by hand; formatting them creates noisy diffs
 *.md
+
+# Prima
+apps/api/src/generated/
