@@ -8,3 +8,172 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum Role {
+  customer
+  provider
+  admin
+}
+
+enum Locale {
+  es_MX @map("es-MX")
+  en
+}
+
+enum UserStatus {
+  active
+  cancelled
+}
+
+enum ProviderStatus {
+  pending
+  verified
+  rejected
+}
+
+enum TokenPurpose {
+  email_verification
+  password_reset
+  email_change
+}
+
+model User {
+  id                   String     @id @default(uuid(7)) @db.Uuid
+  email                String     @unique
+  emailVerifiedAt      DateTime?  @db.Timestamptz(3)
+  name                 String?
+  phone                String?
+  passwordHash         String?
+  role                 Role       @default(customer)
+  locale               Locale     @default(es_MX)
+  privacyNoticeVersion String
+  privacyAcceptedAt    DateTime   @db.Timestamptz(3)
+  status               UserStatus @default(active)
+  createdAt            DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime   @updatedAt @db.Timestamptz(3)
+
+  refreshTokens    RefreshToken[]
+  oneTimeTokens    OneTimeToken[]
+  provider         ProviderProfile?  @relation("ProviderOwner")
+  reviewedProfiles ProviderProfile[] @relation("ProviderReviewer")
+  auditLogs        AuditLog[]
+}
+
+model RefreshToken {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  userId           String    @db.Uuid
+  familyId         String    @db.Uuid
+  sessionStartedAt DateTime  @db.Timestamptz(3)
+  tokenHash        String    @unique
+  expiresAt        DateTime  @db.Timestamptz(3)
+  usedAt           DateTime? @db.Timestamptz(3)
+  replacedById     String?   @unique @db.Uuid
+  revokedAt        DateTime? @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replacedBy RefreshToken? @relation("TokenReplacement", fields: [replacedById], references: [id], onDelete: SetNull)
+  replaces   RefreshToken? @relation("TokenReplacement")
+
+  @@index([userId, familyId])
+  @@index([familyId])
+  @@index([expiresAt])
+}
+
+model OneTimeToken {
+  id        String       @id @default(uuid(7)) @db.Uuid
+  userId    String       @db.Uuid
+  purpose   TokenPurpose
+  tokenHash String       @unique
+  newEmail  String?
+  expiresAt DateTime     @db.Timestamptz(3)
+  usedAt    DateTime?    @db.Timestamptz(3)
+  createdAt DateTime     @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+}
+
+model Category {
+  id     String @id @default(uuid(7)) @db.Uuid
+  slug   String @unique
+  nameEs String
+  nameEn String
+
+  providers ProviderCategory[]
+}
+
+model Zone {
+  id    String @id @default(uuid(7)) @db.Uuid
+  slug  String @unique
+  name  String
+  state String
+
+  providers ProviderZone[]
+}
+
+model ProviderProfile {
+  id                String         @id @default(uuid(7)) @db.Uuid
+  userId            String         @unique @db.Uuid
+  businessName      String
+  description       String?
+  status            ProviderStatus @default(pending)
+  reviewRequestedAt DateTime?      @db.Timestamptz(3)
+  rejectionReason   String?
+  reviewedById      String?        @db.Uuid
+  reviewedAt        DateTime?      @db.Timestamptz(3)
+  createdAt         DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime       @updatedAt @db.Timestamptz(3)
+
+  user       User  @relation("ProviderOwner", fields: [userId], references: [id], onDelete: Restrict)
+  reviewedBy User? @relation("ProviderReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+
+  categories ProviderCategory[]
+  zones      ProviderZone[]
+
+  @@index([status])
+}
+
+model ProviderCategory {
+  providerId String @db.Uuid
+  categoryId String @db.Uuid
+
+  provider ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  category Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@id([providerId, categoryId])
+  @@index([categoryId])
+}
+
+model ProviderZone {
+  providerId String @db.Uuid
+  zoneId     String @db.Uuid
+
+  provider ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  zone     Zone            @relation(fields: [zoneId], references: [id], onDelete: Restrict)
+
+  @@id([providerId, zoneId])
+  @@index([zoneId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  actorId    String   @db.Uuid
+  action     String
+  entityType String
+  entityId   String   @db.Uuid
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  actor User @relation(fields: [actorId], references: [id], onDelete: Restrict)
+}
+
+model ContactMessage {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  name      String
+  email     String
+  message   String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+}

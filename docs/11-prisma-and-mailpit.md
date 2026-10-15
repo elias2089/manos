@@ -1,8 +1,8 @@
 # 11. Prisma y Mailpit: base de datos y correo local
 
-PR: `feat/prisma-and-mailpit`. Cambios en `docker-compose.yml`, `apps/api/` (`prisma/`, `src/prisma/`, `prisma.config.ts`, configuración y pruebas), `turbo.json`, el `package.json` raíz, `eslint.config.mjs`, `.gitignore`, `.prettierignore` y `.env.example`. Más adelante: `.github/workflows/ci.yml`.
+PR 2a (#17, fusionado): rama `feat/prisma-and-mailpit`, commits 1 y 2. PR 2b: rama `feat/data-model`, commits 3 a 7. Cambios en `docker-compose.yml`, `apps/api/` (`prisma/`, `src/prisma/`, `prisma.config.ts`, configuración y pruebas), `turbo.json`, el `package.json` raíz, `eslint.config.mjs`, `.gitignore`, `.prettierignore` y `.env.example`. Más adelante: `.github/workflows/ci.yml`.
 
-> **Estado: en construcción.** Este documento crece con cada commit del PR. Hoy cubre los pasos 1 a 4 (Mailpit, Prisma instalado, `DATABASE_URL` y la conexión). Al cerrar el PR se completan las secciones de pendientes y de cómo repetirlo, y se quita este aviso.
+> **Estado: en construcción.** Este documento crece con cada commit. Hoy cubre los pasos 1 a 6 (Mailpit, Prisma instalado, `DATABASE_URL`, la conexión, el esquema y la primera migración). Al cerrar el PR 2b se completan las secciones de pendientes y de cómo repetirlo, y se quita este aviso.
 
 ## 1. Objetivo
 
@@ -20,7 +20,7 @@ Orden de los commits:
 | 6 | Documentación | Este documento completo y las correcciones de 08 y 09 |
 | 7 | Cucumber | La prueba mínima del riesgo aplazado desde el PR 1, al final del PR |
 
-**Decisiones del PR.** Un solo PR, no dos encadenados, como el PR 1: se revisa commit a commit. Ocho categorías iniciales: Plomería, Electricidad, Limpieza, Pintura, Carpintería, Jardinería, Cerrajería y Aire acondicionado.
+**Decisiones del PR.** El trabajo se pensó como un solo PR, pero tras fusionar los commits 1 y 2 (#17) los commits 3 a 7 van en un segundo PR, `feat/data-model`, para mantener cada revisión pequeña. Ocho categorías iniciales: Plomería, Electricidad, Limpieza, Pintura, Carpintería, Jardinería, Cerrajería y Aire acondicionado.
 
 ## 2. Glosario
 
@@ -48,6 +48,15 @@ Orden de los commits:
 | **Fail fast** | Que un fallo de infraestructura detenga la API antes de aceptar tráfico, no en mitad de una petición |
 | **Ciclo de vida (`OnModuleInit`, `OnModuleDestroy`)** | Métodos que Nest ejecuta solos al arrancar y al cerrar un módulo |
 | **`enableShutdownHooks`** | Hace que Nest cierre los módulos ordenadamente al recibir `SIGTERM` o `Ctrl+C` |
+| **Enum** | Lista cerrada de valores permitidos. En PostgreSQL es un tipo propio y la base rechaza lo que no esté en la lista |
+| **Clave foránea (FK)** | Columna que apunta al `id` de otra tabla; la base rechaza un valor que no exista allí |
+| **`onDelete`** | Qué hace la base al borrar la fila referenciada: `Cascade` borra las dependientes, `Restrict` se niega, `SetNull` vacía la columna |
+| **Tabla puente** | Resuelve una relación de muchos a muchos con una fila por cada par (proveedor, categoría) |
+| **Autorrelación** | Una tabla cuya clave foránea apunta a sí misma, como `RefreshToken.replacedById` |
+| **`CHECK`** | Regla que la base exige a cada fila, como `email = lower(email)` |
+| **`jsonb`** | Columna que guarda un objeto JSON ya interpretado, que se puede consultar por dentro |
+| **Shadow database** | Base temporal que `migrate dev` crea y borra para calcular y validar el SQL de una migración |
+| **`--create-only`** | Genera la migración sin aplicarla, para leerla y editarla antes |
 | **Tarea de Turbo (`generate`)** | Un paso con nombre que Turbo ejecuta antes de otros, para que `typecheck`, `build` y `test` siempre tengan el cliente generado |
 
 ## 3. Qué se hizo, paso a paso
@@ -337,6 +346,62 @@ El `package.json` raíz añade `"generate": "turbo run generate"`.
 - **Tarea `generate` en Turbo y no un `postinstall`:** se regenera sola cuando cambia el esquema y cubre la CI sin tocar el workflow. Un `postinstall` sería redundante y haría la instalación más lenta.
 - **Desventaja conocida:** un comando directo (`pnpm -F @manos/api test`) en una instalación limpia no pasa por Turbo y no encuentra el cliente. Basta con `pnpm generate` o con cualquier script de la raíz.
 
+### Paso 5. El esquema: 5 enums y 10 modelos
+
+```bash
+git switch main && git pull
+git switch -c feat/data-model
+```
+
+El esquema vive en `apps/api/prisma/schema.prisma` y sigue 09, sección 4. Ese archivo es la fuente de verdad; aquí se explican las decisiones que no se deducen leyéndolo. Se escribió por bloques (enums y `User`, tokens, proveedor y catálogos, auditoría y contacto) y se validó con `pnpm -F @manos/api exec prisma validate` tras cada uno. Los campos de relación inversa (`User.refreshTokens`...) se añaden a la vez que el modelo del otro lado: Prisma no valida una relación con un solo extremo.
+
+| Decisión | Resultado | Motivo |
+|---|---|---|
+| Tipo de los identificadores | `@id @default(uuid(7)) @db.Uuid` en todos los `id` y claves foráneas | Columna `uuid` nativa de 16 bytes en lugar de `text` de 36; la versión 7 es ordenable por tiempo y da mejores índices. Prisma la genera en el cliente: la columna **no tiene `DEFAULT`** en SQL |
+| Fechas | `@db.Timestamptz(3)` | Un instante sin ambigüedad (09, sección 7). `@updatedAt` tampoco tiene `DEFAULT`: lo rellena el cliente |
+| Índices de `RefreshToken` | `(userId, familyId)`, `(familyId)` y `(expiresAt)` | Revocar una familia filtra solo por `familyId`, y un compuesto no la serviría. `expiresAt` permite limpiar tokens vencidos |
+| `RefreshToken.replacedById` | Autorrelación con clave foránea, `@unique` y `onDelete: SetNull` | Garantiza integridad. `@unique` porque un token se canjea una sola vez, y Prisma lo exige en una relación 1 a 1. Se probó que borrar un usuario con tokens encadenados no se bloquea |
+| Borrado | `Cascade` en los tokens y `Restrict` en las demás | Los tokens no tienen sentido sin su usuario; los usuarios no se borran, se anonimizan |
+| `ProviderProfile.reviewedById` | `Restrict` escrito a mano | Al ser opcional, Prisma usaría `SetNull` por defecto y se perdería quién decidió |
+| `User` y `ProviderProfile` | Dos relaciones con nombre: `ProviderOwner` y `ProviderReviewer` | Sin nombre, Prisma no distingue al dueño del revisor |
+| `AuditLog.before` y `after` | `Json?` (`jsonb`) | El estado cambia de forma según la acción |
+| `AuditLog.entityId` | `@db.Uuid` **sin** clave foránea | Apunta a cualquier tabla; la aplicación es la responsable de que exista |
+| Nombres | Los de Prisma por defecto, sin `@@map` | Coinciden con 09. Obligan a escribir las tablas entre comillas en SQL a mano |
+| Textos | `text` sin límite | Los límites se validan con Zod en la API |
+| `ProviderProfile.description` | Opcional | Un perfil nuevo en `pending` puede existir sin texto |
+
+### Paso 6. La primera migración
+
+```bash
+docker compose ps
+pnpm -F @manos/api exec prisma migrate dev --create-only --name init
+```
+
+`--create-only` genera `apps/api/prisma/migrations/<fecha>_init/migration.sql` **sin aplicarlo**. Se hace así porque Prisma no sabe expresar una restricción `CHECK`, y esta debe estar en el archivo antes de aplicarlo: una migración ya aplicada no se puede editar (Prisma guarda su checksum). El SQL se revisó línea a línea: enums, tablas, índices y claves foráneas coinciden con las decisiones de arriba. Se añadió a mano, al final:
+
+```sql
+-- AddCheck
+ALTER TABLE "User" ADD CONSTRAINT "User_email_lowercase_check" CHECK ("email" = lower("email"));
+```
+
+Junto con el `UNIQUE` de `email`, impide dos cuentas que solo se diferencien en mayúsculas aunque la aplicación se equivoque. Después:
+
+```bash
+pnpm -F @manos/api exec prisma migrate dev
+pnpm generate
+```
+
+`migrate dev` aplica la migración (usa una *shadow database* temporal para validarla). En Prisma 7 **no regenera el cliente**, por eso `pnpm generate`.
+
+**Comprobado contra la base real**, dentro de transacciones deshechas con `ROLLBACK`:
+
+- El `CHECK` rechaza `Ana@Example.com` con `violates check constraint "User_email_lowercase_check"`.
+- Borrar un usuario con dos `RefreshToken` encadenados por `replacedById` funciona: se borran los dos.
+- Borrar un usuario con `ProviderProfile` falla por `RESTRICT`.
+- Dos tokens con el mismo `replacedById` violan `RefreshToken_replacedById_key`.
+
+**Sin índice a propósito:** `ProviderProfile.reviewedById` y `AuditLog.actorId` no tienen. PostgreSQL no indexa las claves foráneas por sí solo, pero ninguna consulta de la fase 1 filtra por ellas. Si aparece una pantalla de "decisiones de este administrador", se añade en una migración nueva.
+
 ## 4. Alternativas descartadas
 
 | Alternativa | Por qué no |
@@ -356,6 +421,13 @@ El `package.json` raíz añade `"generate": "turbo run generate"`.
 | Solo `$connect()` al arrancar | Con el adaptador `pg` no abre ninguna conexión: una base caída no se detectaría |
 | Un `postinstall` con `prisma generate` | Redundante con la tarea de Turbo y alarga cada instalación |
 | `PrismaModule` sin `@Global()` | Habría que importarlo en cada módulo de datos |
+| Identificadores `text` (por defecto de Prisma) | Ocupan 36 bytes en lugar de 16 y aceptan cualquier cadena |
+| Un solo índice compuesto `(userId, familyId, expiresAt)` en `RefreshToken` | No sirve para revocar una familia, que filtra solo por `familyId` |
+| `replacedById` sin clave foránea | Permitiría ids que no existen |
+| `snake_case` con `@@map` y `@map` | Es la convención habitual de PostgreSQL, pero llena el esquema de ruido y se aleja de 09 |
+| `@db.VarChar(n)` por campo | Obliga a fijar ahora 15 o más longitudes; Zod ya las valida en la API |
+| Validar el correo en minúsculas solo en la aplicación | La base no se protegería sola de un `INSERT` mal hecho |
+| `prisma migrate dev` sin `--create-only` | Aplicaría la migración antes de poder añadirle el `CHECK` |
 
 ## 5. Cómo verificar
 
@@ -408,6 +480,25 @@ Esperado:
 - `start` imprime `PrismaModule dependencies initialized` y termina con `Nest application successfully started`; `GET /health` responde 200.
 - Con la URL de un protocolo distinto (`DATABASE_URL='mysql://...' pnpm -F @manos/api start`) la API no arranca y muestra `→ at DATABASE_URL`, sin la contraseña.
 - Con la base caída (`docker compose stop postgres`) la API no arranca: `Can't reach database server at 127.0.0.1:5432`, código de salida 1. Se restablece con `pnpm services:up`.
+**Pasos 5 y 6** (con Postgres arriba):
+
+```bash
+pnpm -F @manos/api exec prisma validate
+grep -c '^model ' apps/api/prisma/schema.prisma
+grep -c '^enum ' apps/api/prisma/schema.prisma
+pnpm -F @manos/api exec prisma migrate status
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\dt"'
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\d \"User\""'
+```
+
+Esperado:
+
+- `validate` dice `valid`; los `grep` cuentan `10` modelos y `5` enums.
+- `migrate status` dice `Database schema is up to date!`.
+- `\dt` lista 11 tablas: las 10 del modelo y `_prisma_migrations`.
+- `\d "User"` muestra al final `"User_email_lowercase_check" CHECK (email = lower(email))`.
+- Para probar el `CHECK`, un `INSERT` con `'Ana@Example.com'` dentro de `BEGIN ... ROLLBACK` falla con `violates check constraint`.
+
 - **Pruebas con fallo provocado:** al quitar `protocol` del esquema fallan las pruebas de `mysql://` y la de la contraseña; al hacer que el error imprima `JSON.stringify(config)`, falla solo la prueba "never prints the password".
 
 ## 6. Trampas conocidas
@@ -427,6 +518,12 @@ Esperado:
 - **`DATABASE_URL` ausente al actualizar el código.** La API no arranca hasta que el `.env` la tenga. Es lo esperado.
 - **Contraseña con caracteres especiales en la URL.** Deben ir codificados (`%40` para `@`...). Con `openssl rand -hex 24` no hace falta.
 - **`localhost` en lugar de `127.0.0.1`.** Puede resolver a IPv6 (`::1`), y el compose publica solo en IPv4.
+- **Una relación declarada en un solo modelo.** `validate` falla con "missing an opposite relation field". Se añaden los dos lados a la vez.
+- **Dos relaciones entre los mismos modelos sin nombre.** `Ambiguous relation detected`: cada una lleva un nombre idéntico en ambos extremos (`ProviderOwner`, `ProviderReviewer`, `TokenReplacement`).
+- **`SetNull` implícito en claves foráneas opcionales.** Si debe ser `Restrict`, se escribe.
+- **Editar una migración ya aplicada.** Prisma lo detecta por el checksum. Los cambios van antes de aplicar (`--create-only`) o en una migración nueva.
+- **`migrate reset` y `db push` para "arreglar" la base.** Los dos la modifican y se saltan el historial: no se usan sin entender antes el error.
+- **`INSERT` en SQL a mano en el modelo.** Hay que dar `id` y `updatedAt`, que no tienen `DEFAULT`. Con el cliente de Prisma no hace falta.
 - **`Nest can't resolve dependencies of the PrismaService (?)`.** Se importó `ConfigService` con `import type`: debe ser un `import` normal.
 - **`TS1484` con `OnModuleInit` u `OnModuleDestroy`.** Las interfaces se importan con `type` por `verbatimModuleSyntax`.
 - **La API dice "arrancó" con la base apagada.** Queda solo `$connect()` en `onModuleInit`; con el adaptador `pg` no conecta.
