@@ -2,7 +2,7 @@
 
 PR 2a (#17, fusionado): rama `feat/prisma-and-mailpit`, commits 1 y 2. PR 2b: rama `feat/data-model`, commits 3 a 7. Cambios en `docker-compose.yml`, `apps/api/` (`prisma/`, `src/prisma/`, `prisma.config.ts`, configuración y pruebas), `turbo.json`, el `package.json` raíz, `eslint.config.mjs`, `.gitignore`, `.prettierignore` y `.env.example`. Más adelante: `.github/workflows/ci.yml`.
 
-> **Estado: en construcción.** Este documento crece con cada commit. Hoy cubre los pasos 1 a 6 (Mailpit, Prisma instalado, `DATABASE_URL`, la conexión, el esquema y la primera migración). Al cerrar el PR 2b se completan las secciones de pendientes y de cómo repetirlo, y se quita este aviso.
+> **Estado: en construcción.** Este documento crece con cada commit. Hoy cubre los pasos 1 a 9 (Mailpit, Prisma instalado, `DATABASE_URL`, la conexión, el esquema, la primera migración y los datos iniciales). Al cerrar el PR 2b se completan las secciones de pendientes y de cómo repetirlo, y se quita este aviso.
 
 ## 1. Objetivo
 
@@ -402,6 +402,43 @@ pnpm generate
 
 **Sin índice a propósito:** `ProviderProfile.reviewedById` y `AuditLog.actorId` no tienen. PostgreSQL no indexa las claves foráneas por sí solo, pero ninguna consulta de la fase 1 filtra por ellas. Si aparece una pantalla de "decisiones de este administrador", se añade en una migración nueva.
 
+### Paso 7. Los datos iniciales
+
+`apps/api/src/prisma/seed-data.ts` contiene solo datos: las 8 categorías (Plomería, Electricidad, Limpieza, Pintura, Carpintería, Jardinería, Cerrajería y Aire acondicionado, con nombre en español y en inglés) y las 16 alcaldías de la Ciudad de México. El `slug` va en minúsculas, ASCII y con guiones, y el de las categorías **en inglés** (`plumbing`, `electrical`, `air-conditioning`) porque aparecerá en las rutas de la API. El de las alcaldías es el nombre sin acentos (`coyoacan`), por ser nombres propios. [Sin verificar] Los nombres de las alcaldías contra el catálogo oficial del INEGI.
+
+`seed-data.spec.ts` comprueba, sin base de datos, que hay 8 y 16 filas, que todas las zonas son de la Ciudad de México y que los slugs son únicos y cumplen el formato `^[a-z]+(-[a-z]+)*$`. Un slug repetido se descubriría de otro modo al sembrar, por el `UNIQUE` de la base.
+
+### Paso 8. La función que siembra y el programa que la ejecuta
+
+Dos archivos, para poder probar la lógica sin lanzar un seed por accidente:
+
+- `seed-catalogs.ts` exporta `seedCatalogs(prisma)`. Inserta las dos listas con `createMany({ skipDuplicates: true })` dentro de `$transaction([...])`: o entran las dos o ninguna. `skipDuplicates` es un solo `INSERT ... ON CONFLICT DO NOTHING`, así que es idempotente y **no pisa** lo que el administrador edite después. Devuelve cuántas filas se insertaron de verdad.
+- `seed.ts` es el punto de entrada: crea un `PrismaClient` con el adaptador `pg` y `DATABASE_URL` del entorno, llama a la función y se desconecta en un `finally`. No arranca Nest.
+
+| Decisión | Resultado | Motivo |
+|---|---|---|
+| Dónde vive el seed | `src/prisma/`, compilado con el `build` | Node no puede ejecutar el cliente generado: importa `./enums.js` y en disco solo existe `enums.ts` (`ERR_MODULE_NOT_FOUND`). Compilar evita añadir `tsx`, pasa por `typecheck` y lint, y funciona en producción sin dependencias de desarrollo |
+| `data: [...CATEGORIES]` | Copia con spread | `createMany` espera un array normal y la constante es `readonly` |
+| Seed automático en `migrate dev` | No existe | En Prisma 7 `migrate dev` y `migrate reset` ya no siembran: hay que ejecutarlo explícitamente |
+
+### Paso 9. El script `seed`
+
+En `apps/api/package.json`:
+
+```json
+"seed": "node --env-file-if-exists=../../.env dist/prisma/seed.js"
+```
+
+`--env-file-if-exists` carga el `.env` de la raíz solo si existe (la ruta es relativa a `apps/api`, igual que en `prisma.config.ts`); en producción y en la CI las variables vienen del entorno. Se ejecuta lo compilado, así que hay que hacer `pnpm build` antes y de nuevo si cambia `seed-data.ts`.
+
+```bash
+pnpm build
+pnpm -F @manos/api seed
+pnpm -F @manos/api seed
+```
+
+La primera ejecución imprime `Seed done: 8 categories and 16 zones inserted` y la segunda `Seed done: 0 categories and 0 zones inserted`.
+
 ## 4. Alternativas descartadas
 
 | Alternativa | Por qué no |
@@ -428,6 +465,11 @@ pnpm generate
 | `@db.VarChar(n)` por campo | Obliga a fijar ahora 15 o más longitudes; Zod ya las valida en la API |
 | Validar el correo en minúsculas solo en la aplicación | La base no se protegería sola de un `INSERT` mal hecho |
 | `prisma migrate dev` sin `--create-only` | Aplicaría la migración antes de poder añadirle el `CHECK` |
+| `tsx` para ejecutar el seed en TypeScript | Una dependencia más, y el archivo quedaría fuera de `tsconfig`, de ESLint y del `build` |
+| `upsert` por `slug` actualizando los nombres | Sobrescribiría lo que el administrador edite en los catálogos |
+| `upsert` con `update: {}` | Hace lo mismo que `skipDuplicates`, con una sentencia por fila |
+| `migrations.seed` en `prisma.config.ts` | Una segunda vía de ejecución que nadie necesita todavía |
+| Slugs de categorías en español | Las rutas de la API van en inglés: `/categories/plumbing` |
 
 ## 5. Cómo verificar
 
@@ -499,6 +541,22 @@ Esperado:
 - `\d "User"` muestra al final `"User_email_lowercase_check" CHECK (email = lower(email))`.
 - Para probar el `CHECK`, un `INSERT` con `'Ana@Example.com'` dentro de `BEGIN ... ROLLBACK` falla con `violates check constraint`.
 
+**Pasos 7 a 9:**
+
+```bash
+pnpm -F @manos/api test
+pnpm build
+pnpm -F @manos/api seed
+pnpm -F @manos/api seed
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT slug FROM \"Category\" ORDER BY slug" -c "SELECT count(*) FROM \"Zone\""'
+```
+
+Esperado:
+
+- Los tests pasan: 5 archivos y 29 pruebas. Si salen 25, el archivo de datos está fuera de `src`.
+- La primera ejecución del seed imprime `8 categories and 16 zones inserted` y la segunda `0 categories and 0 zones inserted`.
+- La consulta lista 8 categorías con slug en inglés (de `air-conditioning` a `plumbing`) y cuenta `16` zonas.
+
 - **Pruebas con fallo provocado:** al quitar `protocol` del esquema fallan las pruebas de `mysql://` y la de la contraseña; al hacer que el error imprima `JSON.stringify(config)`, falla solo la prueba "never prints the password".
 
 ## 6. Trampas conocidas
@@ -523,6 +581,11 @@ Esperado:
 - **`SetNull` implícito en claves foráneas opcionales.** Si debe ser `Restrict`, se escribe.
 - **Editar una migración ya aplicada.** Prisma lo detecta por el checksum. Los cambios van antes de aplicar (`--create-only`) o en una migración nueva.
 - **`migrate reset` y `db push` para "arreglar" la base.** Los dos la modifican y se saltan el historial: no se usan sin entender antes el error.
+- **El seed y su prueba fuera de `src/`.** `tsconfig` y Vitest solo ven `src`: el archivo no se compila, no pasa `typecheck` y la prueba no se ejecuta (se nota porque los tests siguen siendo 25).
+- **`Type 'readonly ...[]' is not assignable` en `createMany`.** Falta copiar la lista con `[...CATEGORIES]`.
+- **`DATABASE_URL is not set` al sembrar.** El `.env` de la raíz no la tiene, o se ejecutó el programa a mano sin `--env-file-if-exists`. Se usa `pnpm -F @manos/api seed`.
+- **`Cannot find module '.../dist/prisma/seed.js'`, o datos viejos.** Falta `pnpm build`, o no se repitió tras cambiar `seed-data.ts`.
+- **Un editor que quita el salto de línea final** de `package.json`. `prettier --check` falla y la CI también.
 - **`INSERT` en SQL a mano en el modelo.** Hay que dar `id` y `updatedAt`, que no tienen `DEFAULT`. Con el cliente de Prisma no hace falta.
 - **`Nest can't resolve dependencies of the PrismaService (?)`.** Se importó `ConfigService` con `import type`: debe ser un `import` normal.
 - **`TS1484` con `OnModuleInit` u `OnModuleDestroy`.** Las interfaces se importan con `type` por `verbatimModuleSyntax`.

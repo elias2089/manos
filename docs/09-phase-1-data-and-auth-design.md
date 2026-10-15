@@ -163,7 +163,7 @@ Cómo se lee `$argon2id$v=19$m=65536,t=3,p=4$<sal>$<hash>`: algoritmo `argon2id`
 
 | Tabla | Campos | Ejemplo |
 |---|---|---|
-| `Category` | `slug` (único, para URLs), `nameEs`, `nameEn` | `plomeria`, `Plomería`, `Plumbing` |
+| `Category` | `slug` (único, para URLs), `nameEs`, `nameEn` | `plumbing`, `Plomería`, `Plumbing` |
 | `Zone` | `slug` (único), `name`, `state` | `coyoacan`, `Coyoacán`, `Ciudad de México` |
 
 **`ProviderCategory` y `ProviderZone`:** solo `providerId` y `categoryId` (o `zoneId`); juntos forman la clave primaria.
@@ -204,8 +204,8 @@ Ana es clienta con el correo verificado. Luis es proveedor. Sara se registró pe
 
 | ProviderProfile | Category | | ProviderProfile | Zone |
 |---|---|---|---|---|
-| Plomería Torres | plomeria | | Plomería Torres | benito-juarez |
-| Plomería Torres | electricidad | | Plomería Torres | coyoacan |
+| Plomería Torres | plumbing | | Plomería Torres | benito-juarez |
+| Plomería Torres | electrical | | Plomería Torres | coyoacan |
 
 Plomería Torres ya fue aprobada y aparece en las búsquedas de "Plomería" en Coyoacán. Hogar Limpio está `pending` **sin `reviewRequestedAt`**: todavía no pidió la revisión, así que no aparece en la lista del administrador ni en el catálogo.
 
