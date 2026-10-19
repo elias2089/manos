@@ -687,7 +687,8 @@ apps/api/src/
 |---|---|
 | 1 | API base: esqueleto, configuración, registros (logs), `/health`, reloj inyectable y Vitest (ver 10). **La prueba mínima del riesgo de Cucumber se aplazó**: se resuelve antes del PR 3, como paso previo o como PR propio (ver 08) |
 | 2a | **Mailpit** en el compose y conexión de la API a PostgreSQL con Prisma (#17) |
-| 2b | Esquema, primera migración, datos iniciales (categorías y las 16 alcaldías) y pruebas contra PostgreSQL |
+| 2b | Esquema, primera migración y datos iniciales (categorías y las 16 alcaldías) |
+| 2c | Pruebas contra PostgreSQL real (también en la CI), cierre de la documentación y la prueba mínima de Cucumber |
 | 3 | Registro, verificación, inicio de sesión, renovación y cierre de sesión; limitador de intentos y protección CSRF |
 | 4 | Recuperación de contraseña, perfil y cancelación de cuenta |
 | 5 | Roles, perfil de proveedor y verificación por el administrador, con auditoría |
