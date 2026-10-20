@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
-    "generate": "prisma generate"
+    "generate": "prisma generate",
+    "seed": "node --env-file-if-exists=../../.env dist/prisma/seed.js"
   },
   "dependencies": {
     "@nestjs/common": "12.1.3",

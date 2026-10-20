@@ -163,7 +163,7 @@ Cómo se lee `$argon2id$v=19$m=65536,t=3,p=4$<sal>$<hash>`: algoritmo `argon2id`
 
 | Tabla | Campos | Ejemplo |
 |---|---|---|
-| `Category` | `slug` (único, para URLs), `nameEs`, `nameEn` | `plomeria`, `Plomería`, `Plumbing` |
+| `Category` | `slug` (único, para URLs), `nameEs`, `nameEn` | `plumbing`, `Plomería`, `Plumbing` |
 | `Zone` | `slug` (único), `name`, `state` | `coyoacan`, `Coyoacán`, `Ciudad de México` |
 
 **`ProviderCategory` y `ProviderZone`:** solo `providerId` y `categoryId` (o `zoneId`); juntos forman la clave primaria.
@@ -204,8 +204,8 @@ Ana es clienta con el correo verificado. Luis es proveedor. Sara se registró pe
 
 | ProviderProfile | Category | | ProviderProfile | Zone |
 |---|---|---|---|---|
-| Plomería Torres | plomeria | | Plomería Torres | benito-juarez |
-| Plomería Torres | electricidad | | Plomería Torres | coyoacan |
+| Plomería Torres | plumbing | | Plomería Torres | benito-juarez |
+| Plomería Torres | electrical | | Plomería Torres | coyoacan |
 
 Plomería Torres ya fue aprobada y aparece en las búsquedas de "Plomería" en Coyoacán. Hogar Limpio está `pending` **sin `reviewRequestedAt`**: todavía no pidió la revisión, así que no aparece en la lista del administrador ni en el catálogo.
 
@@ -227,7 +227,9 @@ El segundo ya se usó (por eso Ana está verificada), y el tercero está vigente
 
 Los ejemplos de `RefreshToken` están en la sección 5.4, porque dependen del flujo de sesión.
 
-### 4.4 Esquema de Prisma (ilustrativo, sin verificar con Prisma 7.10.0)
+### 4.4 Esquema de Prisma
+
+> **El esquema real y verificado con Prisma 7.10.0 está en `apps/api/prisma/schema.prisma`** (PR 2b, documento 11). El bloque siguiente es el **boceto original** del diseño. Difiere del real en que los identificadores usan `@db.Uuid` con `uuid(7)` y en los índices de `RefreshToken` (ver la tabla de abajo).
 
 ```prisma
 enum Role           { customer provider admin }
@@ -276,11 +278,21 @@ model RefreshToken {
   @@index([expiresAt])
 }
 ```
-Los demás modelos siguen el mismo patrón. **Puntos a verificar al instalar Prisma:**
-- Que `@db.Timestamptz(3)` funcione igual en 7.10.0 (la documentación consultada mezcla la 7 y la candidata 8).
-- Si `@default(uuid(7))` existe en 7.10.0. La versión 7 es ordenable por tiempo y da mejores índices; si no está, se usa `uuid()` (v4).
-- Que el `datasource` no lleve `url` en Prisma 7 y la conexión viva en `prisma.config.ts`.
-- La forma de normalizar el correo a minúsculas: en la aplicación y, si Prisma 7.10 lo soporta, con una restricción `CHECK` en la base.
+Los demás modelos siguen el mismo patrón. **Puntos que había que verificar al instalar Prisma, ya resueltos:**
+- `@db.Timestamptz(3)` funciona igual en 7.10.0.
+- `@default(uuid(7))` existe en 7.10.0. Se usa, con `@db.Uuid` para que la columna sea `uuid` nativa y no `text`. Prisma genera el valor en el cliente: la columna no tiene `DEFAULT` en SQL.
+- El `datasource` no lleva `url` en Prisma 7 y la conexión vive en `prisma.config.ts`.
+- El correo en minúsculas se normaliza en la aplicación y se protege en la base con `CHECK ("email" = lower("email"))`. El esquema de Prisma no expresa esa restricción: se añade a mano en el SQL de la migración, con `migrate dev --create-only`.
+
+**Diferencias entre el boceto y el esquema real:**
+
+| Punto | Boceto | Esquema real |
+|---|---|---|
+| Identificadores y claves foráneas | `String @id @default(uuid())` | `String @id @default(uuid(7)) @db.Uuid` |
+| Índices de `RefreshToken` | `(userId)`, `(familyId)`, `(expiresAt)` | `(userId, familyId)`, `(familyId)`, `(expiresAt)` |
+| `RefreshToken.replacedById` | `String?` sin relación | Autorrelación con clave foránea, `@unique` y `onDelete: SetNull` |
+| `AuditLog.before` y `after` | No definidos | `Json?` (`jsonb`) |
+| `ProviderProfile.description` | No definido | Opcional |
 
 ### 4.5 Reglas del modelo
 
@@ -292,7 +304,7 @@ Los demás modelos siguen el mismo patrón. **Puntos a verificar al instalar Pri
 | **Enums con guion** (`es-MX`) se escriben `es_MX` con `@map("es-MX")` | Prisma no admite guiones en los nombres |
 | **Los usuarios no se borran, se anonimizan** | El `AuditLog` y las decisiones del administrador apuntan a usuarios |
 | **Claves foráneas de tokens con `onDelete: Cascade`**, las demás con restricción | Los tokens no tienen sentido sin su usuario |
-| **Índices** en `RefreshToken(userId, familyId, expiresAt)`, `OneTimeToken(userId, purpose)`, `ProviderProfile(status)`, `ProviderCategory(categoryId)` y `ProviderZone(zoneId)` | Las consultas de renovación, la lista del administrador y la búsqueda filtran por esos campos |
+| **Índices** en `RefreshToken(userId, familyId)`, `RefreshToken(familyId)`, `RefreshToken(expiresAt)`, `OneTimeToken(userId, purpose)`, `ProviderProfile(status)`, `ProviderCategory(categoryId)` y `ProviderZone(zoneId)` | Las consultas de renovación, la lista del administrador y la búsqueda filtran por esos campos |
 | **Contadores y bloqueos no van a la base** | Son temporales, y para eso está Redis |
 
 ### 4.6 Cancelar una cuenta (derecho de Cancelación, ARCO)
@@ -674,7 +686,8 @@ apps/api/src/
 | PR | Contenido |
 |---|---|
 | 1 | API base: esqueleto, configuración, registros (logs), `/health`, reloj inyectable y Vitest (ver 10). **La prueba mínima del riesgo de Cucumber se aplazó**: se resuelve antes del PR 3, como paso previo o como PR propio (ver 08) |
-| 2 | Prisma: esquema, primera migración, datos iniciales (categorías y las 16 alcaldías); **Mailpit** en el compose |
+| 2a | **Mailpit** en el compose y conexión de la API a PostgreSQL con Prisma (#17) |
+| 2b | Esquema, primera migración, datos iniciales (categorías y las 16 alcaldías) y pruebas contra PostgreSQL |
 | 3 | Registro, verificación, inicio de sesión, renovación y cierre de sesión; limitador de intentos y protección CSRF |
 | 4 | Recuperación de contraseña, perfil y cancelación de cuenta |
 | 5 | Roles, perfil de proveedor y verificación por el administrador, con auditoría |
@@ -705,7 +718,7 @@ Cada PR lleva su documento (`10-…` en adelante) y deja en verde los escenarios
 
 | Punto | Estado | Cuándo se resuelve |
 |---|---|---|
-| Forma exacta del esquema de Prisma 7.10.0 (`@db.Timestamptz`, `uuid(7)`, `datasource` sin `url`) | Sin verificar | PR 2 |
+| Forma exacta del esquema de Prisma 7.10.0 (`@db.Timestamptz`, `uuid(7)`, `datasource` sin `url`) | **Verificado** | PR 2a y 2b (ver 11) |
 | `Set-Cookie` con `Secure` y prefijos en `http://localhost` | Sin verificar | PR 3 |
 | API Web Locks para serializar renovaciones entre pestañas | Sin verificar | PR de la web |
 | La guía de OWASP sobre CSRF | Recordada, no consultada | Antes de cerrar el PR 3 |
