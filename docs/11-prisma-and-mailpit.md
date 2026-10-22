@@ -1,8 +1,6 @@
 # 11. Prisma y Mailpit: base de datos y correo local
 
-PR 2a (#17, fusionado): rama `feat/prisma-and-mailpit`, commits 1 y 2. PR 2b: rama `feat/data-model`, commits 3 y 4 (esquema, migración y datos iniciales). PR 2c: rama `feat/db-tests`, commits 5 a 7 (pruebas contra PostgreSQL, cierre de la documentación y Cucumber). Cambios en `docker-compose.yml`, `apps/api/` (`prisma/`, `src/prisma/`, `src/test/`, `prisma.config.ts`, configuración y pruebas), `turbo.json`, el `package.json` raíz, `eslint.config.mjs`, `.gitignore`, `.prettierignore`, `.env.example` y `.github/workflows/ci.yml`.
-
-> **Estado: en construcción.** Este documento crece con cada commit. Hoy cubre los pasos 1 a 13 (Mailpit, Prisma instalado, `DATABASE_URL`, la conexión, el esquema, la primera migración, los datos iniciales y las pruebas contra PostgreSQL, también en la CI). Al cerrar el PR 2c se completan las secciones de pendientes y de cómo repetirlo, y se quita este aviso.
+PR 2a (#17, fusionado): rama `feat/prisma-and-mailpit`, commits 1 y 2. PR 2b: rama `feat/data-model`, commits 3 y 4 (esquema, migración y datos iniciales). PR 2c: rama `feat/db-tests`, commits 5 y 6 (pruebas contra PostgreSQL y cierre de la documentación). Cambios en `docker-compose.yml`, `apps/api/` (`prisma/`, `src/prisma/`, `src/test/`, `prisma.config.ts`, configuración y pruebas), `turbo.json`, el `package.json` raíz, `eslint.config.mjs`, `.gitignore`, `.prettierignore`, `.env.example` y `.github/workflows/ci.yml`.
 
 ## 1. Objetivo
 
@@ -18,7 +16,8 @@ Orden de los commits:
 | 4 | Datos iniciales | Categorías y alcaldías, ejecutables varias veces sin duplicar |
 | 5 | Pruebas contra la base | Pruebas con un PostgreSQL real, también en la CI |
 | 6 | Documentación | Este documento completo y las correcciones de 08 y 09 |
-| 7 | Cucumber | La prueba mínima del riesgo aplazado desde el PR 1, al final del PR |
+
+La prueba mínima de Cucumber, aplazada desde el PR 1, **no** forma parte de este trabajo: se decidirá más adelante (ver la sección 7).
 
 **Decisiones del PR.** El trabajo se pensó como un solo PR, pero se partió en tres para mantener cada revisión por debajo de unas 400 líneas escritas a mano: tras fusionar los commits 1 y 2 (#17), el PR 2b (`feat/data-model`) lleva el esquema, la migración y los datos iniciales, y el PR 2c (`feat/db-tests`) las pruebas contra PostgreSQL, la CI y el cierre. Como el repositorio usa *squash merge*, la rama del PR 2c se reubica sobre `main` con `git rebase --onto main feat/data-model feat/db-tests` cuando se fusiona el 2b. Ocho categorías iniciales: Plomería, Electricidad, Limpieza, Pintura, Carpintería, Jardinería, Cerrajería y Aire acondicionado.
 
@@ -703,5 +702,35 @@ Debe aplicar la migración `init` desde cero y pasar las 42 pruebas. La prueba d
 - **La API dice "arrancó" con la base apagada.** Queda solo `$connect()` en `onModuleInit`; con el adaptador `pg` no conecta.
 - **Los contenedores se paran al reiniciarse WSL.** Con `pnpm services:up` vuelven; la API no arranca mientras tanto, que es el comportamiento buscado.
 - **Turbo no ejecuta `generate`.** El nombre de la tarea o su `dependsOn` no coinciden con el script del paquete.
-- **Turbo 2 y las variables de entorno.** En modo estricto no pasa a las tareas las variables que no se declaran. Hoy ninguna tarea necesita `DATABASE_URL`; las pruebas contra la base (commit 5) sí, y entonces se declarará en `turbo.json`.
+- **Turbo 2 y las variables de entorno.** En modo estricto no pasa a las tareas las variables que no se declaran. Ninguna tarea necesita `DATABASE_URL`, porque la API la lee de `ConfigService`; en cambio, la tarea `test` sí necesita `TEST_DATABASE_URL`, y por eso se declara en `env` dentro de `turbo.json` (paso 10).
 - **`timeout` encadenado con `grep` pierde la salida.** Para capturar el arranque de la API conviene escribir el log en un archivo.
+
+## 7. Pendientes y puntos sin verificar
+
+| Punto | Estado | Cuándo se resuelve |
+|---|---|---|
+| Forma de `PrismaPg` y de `prisma.config.ts` en 7.10.0, ruta de importación del cliente generado, `uuid(7)` y `@db.Timestamptz(3)` | **Verificado** (pasos 2, 4 y 5) | |
+| Imagen de Mailpit v1.31.5 ejecutándose en el compose | **Verificado** (paso 1) | |
+| Esquema validado, migración aplicada desde cero y reglas de la base comprobadas por pruebas automáticas | **Verificado** (pasos 6, 12 y 13) | |
+| Nombres de las 16 alcaldías frente al catálogo oficial del INEGI | Sin verificar: son los nombres usuales | Al exponer las zonas en la API |
+| `lower()` de PostgreSQL frente a `toLowerCase()` de JavaScript con correos no ASCII | Sin verificar. Coinciden con correos ASCII | Al implementar el registro (PR 3) |
+| La imagen de PostgreSQL de `ci.yml` se actualiza a mano | Dependabot solo vigila `docker-compose.yml`: hay que cambiar ambas a la vez | Cada vez que se actualice la imagen |
+| `ProviderProfile.reviewedById` y `AuditLog.actorId` sin índice | Decisión consciente: ninguna consulta de la fase 1 filtra por ellas | Si aparece una pantalla de "decisiones de este administrador" |
+| Un `INSERT` en SQL a mano necesita `id` y `updatedAt` | Esperado: los genera el cliente de Prisma, no la base | |
+| El aviso de `prisma@latest` (8.0.0-rc) | Se ignora a propósito: se fija la versión 7.10.0 | Al decidir la actualización mayor de Prisma |
+| Prueba mínima de Cucumber con TypeScript y decoradores | Aplazada. Se decidirá más adelante (ver 08, sección 5.13) | Sin fecha |
+
+## 8. Para repetirlo en otro proyecto
+
+Con Docker Compose, un monorepo con pnpm y Turbo, y una API de NestJS ya funcionando:
+
+1. **Correo local.** Añadir Mailpit al compose, con puertos solo en `127.0.0.1` y una comprobación de salud en forma exec (paso 1).
+2. **Prisma.** Instalar `prisma`, `@prisma/client`, `@prisma/adapter-pg` y `pg` con **versión exacta** (nunca `latest`), crear `prisma.config.ts` junto al `package.json` y generar el cliente fuera de `node_modules` (paso 2).
+3. **Conexión.** Validar `DATABASE_URL` con Zod, crear un `PrismaService` global que haga una consulta real al arrancar y declarar `generate` como tarea de Turbo antes de `typecheck`, `build` y `test` (pasos 3 y 4).
+4. **Modelo.** Escribir el esquema por bloques con `validate` en cada uno; usar `@db.Uuid`, `Timestamptz(3)`, `onDelete` explícito y relaciones con nombre cuando dos modelos se relacionan más de una vez (paso 5).
+5. **Migración.** `prisma migrate dev --create-only --name init`, leer el SQL línea a línea, añadir a mano lo que Prisma no expresa (el `CHECK` del correo) y solo entonces aplicarla con `prisma migrate dev` y ejecutar `pnpm generate` (paso 6).
+6. **Datos iniciales.** Datos puros en un archivo, una función `seedCatalogs(prisma)` con `createMany({ skipDuplicates: true })` dentro de `$transaction`, y un programa que la ejecute, todo dentro de `src/` para que lo compile el `build` (pasos 7 a 9).
+7. **Base de pruebas.** Una base `manos_test` aparte, `TEST_DATABASE_URL` obligatoria con nombre terminado en `_test`, `migrate deploy` en el `globalSetup` de Vitest, `fileParallelism: false` y `TEST_DATABASE_URL` declarada en `turbo.json` (paso 10).
+8. **Ayudante y pruebas.** `useTestDatabase()` que vacía todas las tablas antes de cada prueba, una prueba por cada decisión del modelo y observar los códigos de error reales (`P2002`, `P2003`, `P2039`) antes de escribir las aserciones (pasos 11 y 12).
+9. **CI.** Un servicio PostgreSQL desechable con comprobación de salud y la misma imagen que el compose, con `TEST_DATABASE_URL` solo en el paso de las pruebas (paso 13).
+10. **Antes de cada PR.** La secuencia completa de la CI en local, incluida la simulación con un contenedor temporal en otro puerto.

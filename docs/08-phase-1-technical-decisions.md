@@ -136,8 +136,8 @@ export const prisma = new PrismaClient({ adapter });
 
 **Trampas y puntos sin verificar.**
 - **[Doc oficial]** En Prisma 7, `prisma migrate dev` **no regenera el cliente**: hay que ejecutar `prisma generate` después de cada cambio del esquema, o los modelos nuevos no existen en tiempo de ejecución.
-- **[Sin verificar]** La documentación muestra **dos formas** de construir el adaptador: `new PrismaPg(cadena)` y `new PrismaPg({ connectionString })`, y dos maneras de escribir `prisma.config.ts`. Cuál aplica a 7.10.0 se confirma al instalar.
-- **[Sin verificar]** La ruta exacta de importación del cliente generado (`./generated/prisma/client.js` es una suposición).
+- **[Verificado en el PR 2, ver 11]** De las dos formas de construir el adaptador que muestra la documentación, en 7.10.0 funciona `new PrismaPg({ connectionString })`. `prisma.config.ts` va junto al `package.json` del paquete (dentro de `prisma/` no se carga) y usa `defineConfig` con `process.loadEnvFile`, porque Prisma 7 no carga el `.env`.
+- **[Verificado en el PR 2, ver 11]** El cliente generado se importa con extensión: `../generated/prisma/client.js`. Node **no** puede ejecutarlo directamente (importa `./enums.js` y en disco solo existe `enums.ts`), así que el código que lo usa se compila antes con `build`.
 - El cliente generado **no se versiona**: va a `.gitignore`, y también hay que excluirlo de ESLint y Prettier.
 
 ### 5.3 Zod 4
@@ -511,13 +511,13 @@ Navegador ──► Next.js ──► NestJS (apps/api)
 |---|---|---|
 | `emitDecoratorMetadata` frente a `verbatimModuleSyntax` en el `tsconfig` | Verificado en el PR 1 (ver 10): `apps/api` usa `nodenext` y decoradores experimentales, y compila con ambas banderas. Las clases que se inyectan por constructor se importan como valor, no con `import type` | |
 | Cargar TypeScript con decoradores desde Cucumber | **Riesgo sin resolver** (aplazado desde el PR 1) | **Antes del PR 3**, con una prueba mínima |
-| Forma exacta de `PrismaPg` y de `prisma.config.ts` en 7.10.0 | Sin verificar (la documentación muestra dos) | Al instalar Prisma |
+| Forma exacta de `PrismaPg` y de `prisma.config.ts` en 7.10.0 | **Verificado** en el PR 2 (ver 11) | |
 | Instalación de `argon2` (nativa) con Node 24 | Sin verificar | Al instalar |
 | Importaciones en ESM (`argon2`, `ioredis`, `helmet`) | Sin verificar. `supertest` ya está verificado en el PR 1: funciona con `import request from 'supertest'` | Al escribir cada servicio |
 | `nestjs-pino` con Nest 12 y rutas de `redact` | Verificado en el PR 1 (ver 10), con pruebas automáticas | |
 | `@nestjs/jwt`: `algorithm` en `signOptions` y fijar algoritmos al verificar | Sin verificar | Al implementar la autenticación |
 | Firma de `PipeTransform` en Nest 12 | Sin verificar | Al escribir el pipe |
-| Mailpit: imagen v1.31.5 ejecutándose en el compose | Sin verificar | PR que añada Mailpit |
+| Mailpit: imagen v1.31.5 ejecutándose en el compose | **Verificado** en el PR 2 (ver 11) | |
 | Dependabot frente a los paquetes nuevos | Sin verificar | Revisar los `ignore` al añadir dependencias |
 
 ## 8. Correcciones respecto a lo propuesto antes
