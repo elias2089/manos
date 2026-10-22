@@ -17,6 +17,7 @@
     },
     "test": {
       "dependsOn": ["^build", "generate"],
+      "env": ["TEST_DATABASE_URL"],
       "outputs": ["coverage/**"]
     }
   }

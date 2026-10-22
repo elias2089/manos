@@ -18,7 +18,7 @@ Los documentos llevan un prefijo numérico: el orden es el de ejecución. Para r
 | [08-phase-1-technical-decisions.md](08-phase-1-technical-decisions.md) | Herramientas de la fase 1 (NestJS, Prisma, Zod, argon2, Mailpit, pino, Vitest, Cucumber...): qué es cada una, para qué se usa, su objetivo, un fragmento de código y qué queda sin verificar |
 | [09-phase-1-data-and-auth-design.md](09-phase-1-data-and-auth-design.md) | Diseño de la fase 1: modelo de datos con diagrama y tablas de ejemplo, tokens y sesiones, claves de Redis, CSRF, fechas en UTC y orden de los PRs |
 | [10-api-base.md](10-api-base.md) | Esqueleto de la API con NestJS 12: paquete, dependencias exactas, `tsconfig` para ESM con `nodenext`, configuración, registros con redacción, `Clock` y `/health`, con las pruebas de cada pieza |
-| [11-prisma-and-mailpit.md](11-prisma-and-mailpit.md) | Base de datos y correo local: Mailpit en el compose, Prisma con PostgreSQL, el modelo de datos de 09, la primera migración, los datos iniciales y las pruebas contra la base (en construcción) |
+| [11-prisma-and-mailpit.md](11-prisma-and-mailpit.md) | Base de datos y correo local: Mailpit en el compose, Prisma con PostgreSQL, el modelo de datos de 09, la primera migración, los datos iniciales y las pruebas contra la base, también en la CI |
 
 ## Arquitectura (referencia)
 

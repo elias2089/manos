@@ -1,8 +1,6 @@
 # 11. Prisma y Mailpit: base de datos y correo local
 
-PR 2a (#17, fusionado): rama `feat/prisma-and-mailpit`, commits 1 y 2. PR 2b: rama `feat/data-model`, commits 3 a 7. Cambios en `docker-compose.yml`, `apps/api/` (`prisma/`, `src/prisma/`, `prisma.config.ts`, configuración y pruebas), `turbo.json`, el `package.json` raíz, `eslint.config.mjs`, `.gitignore`, `.prettierignore` y `.env.example`. Más adelante: `.github/workflows/ci.yml`.
-
-> **Estado: en construcción.** Este documento crece con cada commit. Hoy cubre los pasos 1 a 9 (Mailpit, Prisma instalado, `DATABASE_URL`, la conexión, el esquema, la primera migración y los datos iniciales). Al cerrar el PR 2b se completan las secciones de pendientes y de cómo repetirlo, y se quita este aviso.
+PR 2a (#17, fusionado): rama `feat/prisma-and-mailpit`, commits 1 y 2. PR 2b: rama `feat/data-model`, commits 3 y 4 (esquema, migración y datos iniciales). PR 2c: rama `feat/db-tests`, commits 5 y 6 (pruebas contra PostgreSQL y cierre de la documentación). Cambios en `docker-compose.yml`, `apps/api/` (`prisma/`, `src/prisma/`, `src/test/`, `prisma.config.ts`, configuración y pruebas), `turbo.json`, el `package.json` raíz, `eslint.config.mjs`, `.gitignore`, `.prettierignore`, `.env.example` y `.github/workflows/ci.yml`.
 
 ## 1. Objetivo
 
@@ -18,9 +16,10 @@ Orden de los commits:
 | 4 | Datos iniciales | Categorías y alcaldías, ejecutables varias veces sin duplicar |
 | 5 | Pruebas contra la base | Pruebas con un PostgreSQL real, también en la CI |
 | 6 | Documentación | Este documento completo y las correcciones de 08 y 09 |
-| 7 | Cucumber | La prueba mínima del riesgo aplazado desde el PR 1, al final del PR |
 
-**Decisiones del PR.** El trabajo se pensó como un solo PR, pero tras fusionar los commits 1 y 2 (#17) los commits 3 a 7 van en un segundo PR, `feat/data-model`, para mantener cada revisión pequeña. Ocho categorías iniciales: Plomería, Electricidad, Limpieza, Pintura, Carpintería, Jardinería, Cerrajería y Aire acondicionado.
+La prueba mínima de Cucumber, aplazada desde el PR 1, **no** forma parte de este trabajo: se decidirá más adelante (ver la sección 7).
+
+**Decisiones del PR.** El trabajo se pensó como un solo PR, pero se partió en tres para mantener cada revisión por debajo de unas 400 líneas escritas a mano: tras fusionar los commits 1 y 2 (#17), el PR 2b (`feat/data-model`) lleva el esquema, la migración y los datos iniciales, y el PR 2c (`feat/db-tests`) las pruebas contra PostgreSQL, la CI y el cierre. Como el repositorio usa *squash merge*, la rama del PR 2c se reubica sobre `main` con `git rebase --onto main feat/data-model feat/db-tests` cuando se fusiona el 2b. Ocho categorías iniciales: Plomería, Electricidad, Limpieza, Pintura, Carpintería, Jardinería, Cerrajería y Aire acondicionado.
 
 ## 2. Glosario
 
@@ -57,6 +56,14 @@ Orden de los commits:
 | **`jsonb`** | Columna que guarda un objeto JSON ya interpretado, que se puede consultar por dentro |
 | **Shadow database** | Base temporal que `migrate dev` crea y borra para calcular y validar el SQL de una migración |
 | **`--create-only`** | Genera la migración sin aplicarla, para leerla y editarla antes |
+| **Prueba de integración** | Ejecuta varias piezas reales juntas, aquí el cliente de Prisma contra una base PostgreSQL de verdad. Una base simulada no probaría un `CHECK` ni un `ON DELETE` |
+| **Aislamiento entre pruebas** | Que cada prueba empiece desde el mismo estado conocido, para que no dependan del orden |
+| **`globalSetup`** | Archivo de Vitest cuya función `setup()` corre una vez, en el proceso principal, antes de crear los workers |
+| **`migrate deploy`** | Aplica las migraciones pendientes sin generar nada ni preguntar. Es el comando de la CI y de producción |
+| **`TRUNCATE`** | Vacía tablas de golpe. Con `CASCADE` vacía también las que las referencian |
+| **Contenedor de servicio** | Contenedor que GitHub arranca junto al trabajo de la CI y mantiene mientras corren los pasos |
+| **Comprobación de salud** | Comando que se repite hasta que el servicio responde. El trabajo espera a que pase |
+| **Prueba de mutación** | Romper el código a propósito para confirmar que una prueba falla. Si no falla, no protege nada |
 | **Tarea de Turbo (`generate`)** | Un paso con nombre que Turbo ejecuta antes de otros, para que `typecheck`, `build` y `test` siempre tengan el cliente generado |
 
 ## 3. Qué se hizo, paso a paso
@@ -439,6 +446,65 @@ pnpm -F @manos/api seed
 
 La primera ejecución imprime `Seed done: 8 categories and 16 zones inserted` y la segunda `Seed done: 0 categories and 0 zones inserted`.
 
+### Paso 10. La base de pruebas y la configuración de Vitest
+
+Las pruebas de integración no pueden usar la base de desarrollo, porque vacían las tablas. Se usa una base separada, `manos_test`, en el mismo contenedor, que se crea una sola vez:
+
+```bash
+docker compose exec postgres sh -c 'createdb -U "$POSTGRES_USER" manos_test'
+```
+
+`TEST_DATABASE_URL` va en el `.env` (y su plantilla en `.env.example`) con las mismas credenciales que `DATABASE_URL` y la base `manos_test`.
+
+| Pieza | Qué hace |
+|---|---|
+| `src/test/test-database-url.ts` | Carga el `.env` si existe y devuelve `TEST_DATABASE_URL`. Falla con un mensaje claro si falta o si el nombre de la base no termina en `_test` |
+| `vitest.global-setup.ts` | Antes de cualquier prueba ejecuta `prisma migrate deploy` contra la base de pruebas. De paso demuestra que las migraciones se aplican a una base vacía |
+| `vitest.config.ts` | Registra el `globalSetup` y desactiva `fileParallelism`: los archivos comparten una base y no pueden correr a la vez |
+| `turbo.json` | Declara `TEST_DATABASE_URL` en la tarea `test`: Turbo 2 en modo estricto solo entrega las variables declaradas |
+| `tsconfig.json` y `tsconfig.build.json` | El primero incluye el setup para `typecheck` y ESLint; el segundo excluye `src/test/` para que no se compile a `dist/` |
+
+| Decisión | Resultado | Motivo |
+|---|---|---|
+| Base de las pruebas | Una base separada, `manos_test` | Limpiar la de desarrollo borraría el catálogo sembrado |
+| Falta `TEST_DATABASE_URL` | La ejecución falla | Una prueba que se omite sola da una falsa confianza: una CI mal configurada saldría en verde |
+| Nombre de la base | Debe terminar en `_test` | Evita vaciar por error la base de desarrollo si alguien pone su URL |
+| Preparar el esquema | `prisma migrate deploy` en el `globalSetup` | Aplica las migraciones desde cero en cada base nueva |
+
+**Hallazgos.**
+
+- `process.loadEnvFile` **no pisa** las variables que ya existen en el entorno. Por eso `migrate deploy` usa la URL de pruebas aunque `prisma.config.ts` cargue el `.env`.
+- El mensaje de error de `new URL(...)` incluye la entrada completa, contraseña incluida. El ayudante lo captura y lanza un mensaje fijo, para no filtrar la contraseña en la terminal ni en los registros de la CI.
+- `globalSetup` corre una vez, antes de crear los workers, y también al lanzar una sola prueba: desde ahora **toda** ejecución de Vitest necesita la base arriba.
+
+### Paso 11. El ayudante de las pruebas de base de datos
+
+`src/test/test-database.ts` exporta dos funciones:
+
+- `resetDatabase(prisma)` vacía todas las tablas excepto `_prisma_migrations`. Lo hace un bloque `DO $$ ... $$` que lee la lista de tablas de `pg_tables` y ejecuta un único `TRUNCATE ... CASCADE`. La sentencia es un texto fijo, sin interpolación, y una tabla nueva queda cubierta sin tocar el archivo. Una lista escrita a mano se olvidaría de alguna y las pruebas se contaminarían entre sí.
+- `useTestDatabase()` crea un `PrismaClient` con el adaptador `pg` apuntando a la base de pruebas, registra un `beforeEach` que la vacía y un `afterAll` que cierra la conexión. Cada archivo de pruebas lo llama una vez.
+
+Su propia prueba comprueba que se vacían también las filas enlazadas por claves foráneas y que `_prisma_migrations` se conserva. Con `noUncheckedIndexedAccess`, el resultado de `$queryRaw` se lee con `rows[0]?.applied`, no con `const [{ applied }]`.
+
+### Paso 12. Las pruebas contra la base real
+
+| Archivo | Qué demuestra |
+|---|---|
+| `seed-catalogs.spec.ts` (4 pruebas) | El seed inserta todo, no inserta nada la segunda vez, **conserva un nombre editado** después y completa solo las filas que faltan |
+| `data-model.spec.ts` (7 pruebas) | El `CHECK` del correo, el correo único, la cascada de tokens encadenados, `replacedById` usado una sola vez, `Restrict` sobre el dueño del perfil y sobre el administrador que lo revisó, y el par proveedor-categoría sin repetir |
+
+Los errores de la base se observaron contra `manos_test` antes de escribir las aserciones: un `CHECK` fallido llega como `P2039` (el mensaje contiene el nombre de la restricción), una clave única como `P2002` y una clave foránea como `P2003`. La prueba del administrador revisor protege el `Restrict` de `reviewedById` que hubo que escribir a mano, porque Prisma habría usado `SetNull` por defecto.
+
+En total, 8 archivos y 42 pruebas.
+
+### Paso 13. El servicio PostgreSQL en la CI
+
+En `.github/workflows/ci.yml`, el trabajo `quality` arranca un contenedor `postgres` con la misma imagen y el mismo digest que `docker-compose.yml`, con `POSTGRES_DB=manos_test` y una comprobación de salud con `pg_isready`: el trabajo espera a que la base acepte conexiones antes de lanzar los pasos. `TEST_DATABASE_URL` se da **solo al paso `pnpm test`**.
+
+- La contraseña del workflow **no es un secreto**: protege una base desechable que vive unos minutos en una máquina que GitHub destruye después, sin datos reales. Un secreto del repositorio no aportaría nada.
+- **Desventaja:** Dependabot solo vigila `docker-compose.yml` (ecosistema `docker-compose`), así que la imagen del workflow no se actualiza sola. Un comentario en el archivo recuerda mantener ambas en sincronía.
+- Se simuló en local con un contenedor temporal en otro puerto: la migración se aplicó a una base vacía y pasaron las 42 pruebas con `pnpm test` desde la raíz, es decir, con el modo estricto de Turbo.
+
 ## 4. Alternativas descartadas
 
 | Alternativa | Por qué no |
@@ -470,6 +536,15 @@ La primera ejecución imprime `Seed done: 8 categories and 16 zones inserted` y 
 | `upsert` con `update: {}` | Hace lo mismo que `skipDuplicates`, con una sentencia por fila |
 | `migrations.seed` en `prisma.config.ts` | Una segunda vía de ejecución que nadie necesita todavía |
 | Slugs de categorías en español | Las rutas de la API van en inglés: `/categories/plumbing` |
+| Limpiar la base de desarrollo en las pruebas | Borraría el catálogo sembrado y cualquier dato de trabajo |
+| Testcontainers (un contenedor nuevo por ejecución) | Una dependencia más, más lento y complica la CI, sin ventaja sobre una base separada |
+| Omitir las pruebas de base de datos si falta la variable | Una CI mal configurada saldría en verde sin comprobar el `CHECK` ni las claves foráneas |
+| Cada prueba dentro de una transacción que se deshace | Obliga a pasar el cliente transaccional a todo, y no sirve para `seedCatalogs`, que abre su propia transacción |
+| Una lista escrita a mano en el `TRUNCATE` | Si falta una tabla nueva, las pruebas se contaminan en silencio |
+| `$executeRawUnsafe` con los nombres de tabla concatenados | Hace falta un texto fijo: el bloque `DO` lo construye la propia base |
+| Una prueba por cada regla repetida (tabla de zonas, `AuditLog.actorId`) | Usan el mismo mecanismo que las ya probadas |
+| La contraseña de la CI como secreto del repositorio | Protege una base desechable sin datos reales: no aporta nada |
+| Servicio de la CI sin comprobación de salud | Las pruebas podrían empezar antes de que la base acepte conexiones |
 
 ## 5. Cómo verificar
 
@@ -557,6 +632,31 @@ Esperado:
 - La primera ejecución del seed imprime `8 categories and 16 zones inserted` y la segunda `0 categories and 0 zones inserted`.
 - La consulta lista 8 categorías con slug en inglés (de `air-conditioning` a `plumbing`) y cuenta `16` zonas.
 
+**Pasos 10 a 13** (con Postgres arriba y `manos_test` creada):
+
+```bash
+pnpm -F @manos/api test
+TEST_DATABASE_URL= pnpm -F @manos/api test
+TEST_DATABASE_URL=not-a-url pnpm -F @manos/api test
+pnpm format:check
+```
+
+Esperado:
+
+- Las pruebas pasan: 8 archivos y 42 pruebas. La primera vez, Prisma aplica la migración `init` a `manos_test`; después dice `No pending migrations to apply`.
+- Con la variable vacía falla con `TEST_DATABASE_URL is not set`, y con `not-a-url` con `TEST_DATABASE_URL is not a valid URL`, sin imprimir el valor. Con una URL cuya base no termine en `_test` falla con `must point to a database whose name ends in _test`.
+- `format:check` pasa y valida también el YAML de `ci.yml`.
+
+Para simular la CI en local, con un contenedor temporal en otro puerto y sin datos previos:
+
+```bash
+docker run -d --rm --name manos-ci-sim -e POSTGRES_USER=manos -e POSTGRES_PASSWORD=ci-only-password -e POSTGRES_DB=manos_test -p 127.0.0.1:55432:5432 postgres:17-alpine
+TEST_DATABASE_URL=postgresql://manos:ci-only-password@127.0.0.1:55432/manos_test pnpm test
+docker stop manos-ci-sim
+```
+
+Debe aplicar la migración `init` desde cero y pasar las 42 pruebas. La prueba definitiva es el trabajo `Quality` del pull request en GitHub.
+
 - **Pruebas con fallo provocado:** al quitar `protocol` del esquema fallan las pruebas de `mysql://` y la de la contraseña; al hacer que el error imprima `JSON.stringify(config)`, falla solo la prueba "never prints the password".
 
 ## 6. Trampas conocidas
@@ -581,6 +681,16 @@ Esperado:
 - **`SetNull` implícito en claves foráneas opcionales.** Si debe ser `Restrict`, se escribe.
 - **Editar una migración ya aplicada.** Prisma lo detecta por el checksum. Los cambios van antes de aplicar (`--create-only`) o en una migración nueva.
 - **`migrate reset` y `db push` para "arreglar" la base.** Los dos la modifican y se saltan el historial: no se usan sin entender antes el error.
+- **`TEST_DATABASE_URL is not set` aunque la variable está en el `.env`.** El nombre tiene un error de escritura, el valor repite el nombre (`TEST_DATABASE_URL=TEST_DATABASE_URL=...`), la línea no se guardó, o hay una variable **vacía** exportada en la terminal: `loadEnvFile` no pisa variables ya definidas, ni siquiera vacías. Se prueba con la forma de una sola línea, `TEST_DATABASE_URL= pnpm ...`, nunca con `export`.
+- **`ERR_INVALID_URL`.** El valor no empieza por `postgresql://`, o aún lleva los marcadores `usuario:contraseña`.
+- **`P1000: Authentication failed` al aplicar las migraciones de prueba.** La contraseña de `TEST_DATABASE_URL` no coincide con la del servidor, que es la misma que la de `DATABASE_URL` porque la base de pruebas vive en el mismo contenedor. Se copia la línea de `DATABASE_URL` y se cambian solo el nombre y la base.
+- **`database "manos_test" does not exist`.** Falta el `createdb` del paso 10.
+- **El mensaje de un error de URL imprime la contraseña.** Es el comportamiento de `new URL`; por eso se captura y se lanza uno propio.
+- **`TS2339` al leer el resultado de `$queryRaw`.** Con `noUncheckedIndexedAccess`, `const [{ x }] = ...` no compila: se usa `rows[0]?.x`.
+- **`replacedById: undefined` no compila** con `exactOptionalPropertyTypes`. Se pasa `null` para "sin valor".
+- **Un editor que reindenta a 4 espacios.** `format:check` falla y la CI también. Se arregla con `prettier --write` sobre el archivo y revisando la configuración del editor.
+- **Una sola prueba también necesita la base.** `globalSetup` corre siempre: sin Postgres arriba ninguna prueba se ejecuta.
+- **Servicio de la CI con otra imagen que el compose.** Dependabot no actualiza la del workflow: hay que cambiarla a mano a la vez.
 - **El seed y su prueba fuera de `src/`.** `tsconfig` y Vitest solo ven `src`: el archivo no se compila, no pasa `typecheck` y la prueba no se ejecuta (se nota porque los tests siguen siendo 25).
 - **`Type 'readonly ...[]' is not assignable` en `createMany`.** Falta copiar la lista con `[...CATEGORIES]`.
 - **`DATABASE_URL is not set` al sembrar.** El `.env` de la raíz no la tiene, o se ejecutó el programa a mano sin `--env-file-if-exists`. Se usa `pnpm -F @manos/api seed`.
@@ -592,5 +702,35 @@ Esperado:
 - **La API dice "arrancó" con la base apagada.** Queda solo `$connect()` en `onModuleInit`; con el adaptador `pg` no conecta.
 - **Los contenedores se paran al reiniciarse WSL.** Con `pnpm services:up` vuelven; la API no arranca mientras tanto, que es el comportamiento buscado.
 - **Turbo no ejecuta `generate`.** El nombre de la tarea o su `dependsOn` no coinciden con el script del paquete.
-- **Turbo 2 y las variables de entorno.** En modo estricto no pasa a las tareas las variables que no se declaran. Hoy ninguna tarea necesita `DATABASE_URL`; las pruebas contra la base (commit 5) sí, y entonces se declarará en `turbo.json`.
+- **Turbo 2 y las variables de entorno.** En modo estricto no pasa a las tareas las variables que no se declaran. Ninguna tarea necesita `DATABASE_URL`, porque la API la lee de `ConfigService`; en cambio, la tarea `test` sí necesita `TEST_DATABASE_URL`, y por eso se declara en `env` dentro de `turbo.json` (paso 10).
 - **`timeout` encadenado con `grep` pierde la salida.** Para capturar el arranque de la API conviene escribir el log en un archivo.
+
+## 7. Pendientes y puntos sin verificar
+
+| Punto | Estado | Cuándo se resuelve |
+|---|---|---|
+| Forma de `PrismaPg` y de `prisma.config.ts` en 7.10.0, ruta de importación del cliente generado, `uuid(7)` y `@db.Timestamptz(3)` | **Verificado** (pasos 2, 4 y 5) | |
+| Imagen de Mailpit v1.31.5 ejecutándose en el compose | **Verificado** (paso 1) | |
+| Esquema validado, migración aplicada desde cero y reglas de la base comprobadas por pruebas automáticas | **Verificado** (pasos 6, 12 y 13) | |
+| Nombres de las 16 alcaldías frente al catálogo oficial del INEGI | Sin verificar: son los nombres usuales | Al exponer las zonas en la API |
+| `lower()` de PostgreSQL frente a `toLowerCase()` de JavaScript con correos no ASCII | Sin verificar. Coinciden con correos ASCII | Al implementar el registro (PR 3) |
+| La imagen de PostgreSQL de `ci.yml` se actualiza a mano | Dependabot solo vigila `docker-compose.yml`: hay que cambiar ambas a la vez | Cada vez que se actualice la imagen |
+| `ProviderProfile.reviewedById` y `AuditLog.actorId` sin índice | Decisión consciente: ninguna consulta de la fase 1 filtra por ellas | Si aparece una pantalla de "decisiones de este administrador" |
+| Un `INSERT` en SQL a mano necesita `id` y `updatedAt` | Esperado: los genera el cliente de Prisma, no la base | |
+| El aviso de `prisma@latest` (8.0.0-rc) | Se ignora a propósito: se fija la versión 7.10.0 | Al decidir la actualización mayor de Prisma |
+| Prueba mínima de Cucumber con TypeScript y decoradores | Aplazada. Se decidirá más adelante (ver 08, sección 5.13) | Sin fecha |
+
+## 8. Para repetirlo en otro proyecto
+
+Con Docker Compose, un monorepo con pnpm y Turbo, y una API de NestJS ya funcionando:
+
+1. **Correo local.** Añadir Mailpit al compose, con puertos solo en `127.0.0.1` y una comprobación de salud en forma exec (paso 1).
+2. **Prisma.** Instalar `prisma`, `@prisma/client`, `@prisma/adapter-pg` y `pg` con **versión exacta** (nunca `latest`), crear `prisma.config.ts` junto al `package.json` y generar el cliente fuera de `node_modules` (paso 2).
+3. **Conexión.** Validar `DATABASE_URL` con Zod, crear un `PrismaService` global que haga una consulta real al arrancar y declarar `generate` como tarea de Turbo antes de `typecheck`, `build` y `test` (pasos 3 y 4).
+4. **Modelo.** Escribir el esquema por bloques con `validate` en cada uno; usar `@db.Uuid`, `Timestamptz(3)`, `onDelete` explícito y relaciones con nombre cuando dos modelos se relacionan más de una vez (paso 5).
+5. **Migración.** `prisma migrate dev --create-only --name init`, leer el SQL línea a línea, añadir a mano lo que Prisma no expresa (el `CHECK` del correo) y solo entonces aplicarla con `prisma migrate dev` y ejecutar `pnpm generate` (paso 6).
+6. **Datos iniciales.** Datos puros en un archivo, una función `seedCatalogs(prisma)` con `createMany({ skipDuplicates: true })` dentro de `$transaction`, y un programa que la ejecute, todo dentro de `src/` para que lo compile el `build` (pasos 7 a 9).
+7. **Base de pruebas.** Una base `manos_test` aparte, `TEST_DATABASE_URL` obligatoria con nombre terminado en `_test`, `migrate deploy` en el `globalSetup` de Vitest, `fileParallelism: false` y `TEST_DATABASE_URL` declarada en `turbo.json` (paso 10).
+8. **Ayudante y pruebas.** `useTestDatabase()` que vacía todas las tablas antes de cada prueba, una prueba por cada decisión del modelo y observar los códigos de error reales (`P2002`, `P2003`, `P2039`) antes de escribir las aserciones (pasos 11 y 12).
+9. **CI.** Un servicio PostgreSQL desechable con comprobación de salud y la misma imagen que el compose, con `TEST_DATABASE_URL` solo en el paso de las pruebas (paso 13).
+10. **Antes de cada PR.** La secuencia completa de la CI en local, incluida la simulación con un contenedor temporal en otro puerto.

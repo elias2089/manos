@@ -134,9 +134,9 @@ La **única** capa que habla con PostgreSQL y Redis. Un módulo no toca las tabl
 
 | Herramienta | Qué hace | Estado |
 |---|---|---|
-| **Prisma** (Client + `@prisma/adapter-pg` + `pg`) | Traduce el código TypeScript a consultas SQL parametrizadas, que protegen contra inyección SQL, y da tipos a cada resultado. El adaptador y el driver `pg` hacen la conexión | En curso (PR 2): instalado; falta `PrismaService`, el modelo y la migración |
-| **Migraciones de Prisma** | Archivos SQL versionados que cambian la estructura de la base | En curso (PR 2) |
-| **Datos iniciales (seed)** | Cargan las categorías y las 16 alcaldías | En curso (PR 2) |
+| **Prisma** (Client + `@prisma/adapter-pg` + `pg`) | Traduce el código TypeScript a consultas SQL parametrizadas, que protegen contra inyección SQL, y da tipos a cada resultado. El adaptador y el driver `pg` hacen la conexión | Hecho (PR 2a y 2b): `PrismaService` global, 10 modelos y 5 enums |
+| **Migraciones de Prisma** | Archivos SQL versionados que cambian la estructura de la base | Hecho (PR 2b): migración `init`, con un `CHECK` añadido a mano |
+| **Datos iniciales (seed)** | Cargan las categorías y las 16 alcaldías, sin duplicar si se repiten | Hecho (PR 2b) |
 | **ioredis** | Cliente de Redis para los contadores y bloqueos del limitador | Pendiente (PR 3) |
 
 ### Capa 9. Almacenes y servicios externos
@@ -189,9 +189,9 @@ No participan cuando la API atiende una petición, pero sostienen todo lo anteri
 | **ESLint** y **Prettier** | Calidad y formato del código | Hecho (fase 0) |
 | **husky**, **lint-staged** y **commitlint** | Revisan los archivos y el mensaje en cada commit | Hecho (fase 0) |
 | **gitleaks** | Busca secretos en cada commit y en todo el historial | Hecho (fase 0) |
-| **Vitest** y **SWC** | Pruebas unitarias y de integración, con soporte de decoradores | Hecho (PR 1) |
-| **Cucumber** | Ejecuta los escenarios Gherkin de `docs/features/` contra la API | Pendiente (al final del PR 2, ver 11) |
-| **GitHub Actions** | La CI: formato, lint, tipos, build, pruebas y escaneo de secretos en cada PR | Hecho (fase 0) |
+| **Vitest** y **SWC** | Pruebas unitarias y de integración, con soporte de decoradores. Las de integración usan una base PostgreSQL real, `manos_test` | Hecho (PR 1 y PR 2c) |
+| **Cucumber** | Ejecuta los escenarios Gherkin de `docs/features/` contra la API | Pendiente, sin fecha (ver 08, sección 5.13) |
+| **GitHub Actions** | La CI: formato, lint, tipos, build, pruebas y escaneo de secretos en cada PR. Las pruebas tienen su propio servicio PostgreSQL desechable | Hecho (fase 0 y PR 2c) |
 | **Dependabot** | Propone actualizaciones de dependencias | Hecho (fase 0); su configuración frente a `apps/api` está sin verificar |
 | **Docker Compose** | Levanta PostgreSQL, Redis y Mailpit en local | Hecho (fase 0 y PR 2) |
 
@@ -227,9 +227,13 @@ La columna **¿Modifica archivos?** importa: los comandos que escriben (`--write
 | `pnpm generate` | Ejecuta, vía Turbo, `prisma generate` en cada paquete que lo tenga: crea el cliente de Prisma en `src/generated/` a partir de `schema.prisma` | Sí: `src/generated/` (no se versiona) | Tras clonar, y **cada vez que cambie `schema.prisma`**. Los scripts `build`, `typecheck` y `test` de la raíz lo ejecutan solos |
 | `pnpm -F @manos/api generate` | Lo mismo, solo en la API y sin Turbo | Sí: `src/generated/` | Si ejecutas un script de la API directamente y el cliente no existe |
 | `pnpm -F @manos/api exec prisma validate` | Comprueba que el esquema es válido, sin tocar la base | No | Tras editar `schema.prisma` y antes de generar o migrar |
-| `prisma migrate dev` y `prisma db seed` | Crean y aplican migraciones en desarrollo, y cargan los datos iniciales | Sí | Llegan en los commits 3 y 4 de este PR; se documentarán al usarlos |
+| `pnpm -F @manos/api exec prisma migrate dev --create-only --name <nombre>` | Genera una migración nueva **sin aplicarla**, para leer el SQL y editarlo | Sí: `prisma/migrations/` | Tras cambiar `schema.prisma`. Si hay algo que Prisma no expresa (un `CHECK`), se añade a mano **antes** de aplicarla |
+| `pnpm -F @manos/api exec prisma migrate dev` | Aplica las migraciones pendientes a la base de desarrollo (y crea una temporal, la *shadow database*, para validarlas) | Sí: la base | Tras `--create-only` y la revisión del SQL |
+| `pnpm -F @manos/api exec prisma migrate deploy` | Aplica las pendientes, sin generar nada ni preguntar | Sí: la base | CI, producción y el `globalSetup` de las pruebas |
+| `pnpm -F @manos/api exec prisma migrate status` | Dice si la base está al día con las migraciones | No | Para comprobar el estado de una base |
+| `pnpm -F @manos/api seed` | Carga las 8 categorías y las 16 alcaldías; repetirlo no duplica nada ni pisa lo editado | Sí: la base | Tras aplicar las migraciones. Requiere `pnpm build` antes: ejecuta lo compilado |
 
-Prisma 7 **no** regenera el cliente al migrar: hay que ejecutar `generate` aparte.
+Prisma 7 **no** regenera el cliente al migrar, y **tampoco siembra** al migrar: `generate` y `seed` se ejecutan aparte. Una migración ya aplicada no se edita (Prisma guarda su checksum): los cambios van en una migración nueva.
 
 ### 6.4 Calidad del código
 
@@ -266,6 +270,8 @@ La API no recarga sola al cambiar el código: hay que volver a compilar y a arra
 | `pnpm -F @manos/api test:watch` | Las vuelve a ejecutar al guardar cada archivo | No | Mientras escribes una prueba |
 | `pnpm -F @manos/api test:cov` | Pruebas más informe de cobertura | `coverage/` (no se versiona) | Para ver qué código no ejercitan las pruebas |
 
+Todas las pruebas necesitan **PostgreSQL arriba** y `TEST_DATABASE_URL` en el `.env`, apuntando a la base `manos_test` (el nombre debe terminar en `_test`). Antes de ejecutarlas, Vitest aplica las migraciones a esa base, y antes de cada prueba la vacía: nunca toca la de desarrollo. Se crea una vez con `docker compose exec postgres sh -c 'createdb -U "$POSTGRES_USER" manos_test'`.
+
 ### 6.7 Seguridad
 
 | Comando | Qué hace | ¿Modifica archivos? | Cuándo |
@@ -280,10 +286,13 @@ No ejecutes gitleaks apuntando a carpetas sueltas: el modo `dir` escanea toda la
 ### 7.1 Tras clonar el repositorio
 
 1. `pnpm install`
-2. Copiar `.env.example` a `.env` y rellenar los valores (incluida la `DATABASE_URL`)
+2. Copiar `.env.example` a `.env` y rellenar los valores (incluidas `DATABASE_URL` y `TEST_DATABASE_URL`, esta con la base `manos_test`)
 3. `pnpm services:up`
-4. `pnpm generate`
-5. `pnpm build` y `pnpm -F @manos/api start`
+4. Crear la base de pruebas, una sola vez: `docker compose exec postgres sh -c 'createdb -U "$POSTGRES_USER" manos_test'`
+5. `pnpm generate`
+6. `pnpm -F @manos/api exec prisma migrate deploy` (aplica las migraciones a la base de desarrollo)
+7. `pnpm build` y `pnpm -F @manos/api seed` (carga los catálogos)
+8. `pnpm -F @manos/api start`
 
 ### 7.2 Cada día
 
@@ -297,7 +306,9 @@ No ejecutes gitleaks apuntando a carpetas sueltas: el modo `dir` escanea toda la
 1. `pnpm -F @manos/api exec prisma validate`
 2. `pnpm generate`
 3. `pnpm -F @manos/api typecheck`, para ver qué código se rompió con el cambio
-4. Más adelante: crear la migración (commit 3 de este PR)
+4. `pnpm -F @manos/api exec prisma migrate dev --create-only --name <nombre>`, leer el `migration.sql` generado y añadirle a mano lo que Prisma no exprese
+5. `pnpm -F @manos/api exec prisma migrate dev` para aplicarla, y `pnpm generate` otra vez
+6. `pnpm -F @manos/api test`: las pruebas de la base comprueban las reglas del modelo
 
 ### 7.4 Antes de cada commit
 
@@ -319,9 +330,9 @@ Se ejecuta en este orden, de lo más barato a lo más caro. Si uno falla, se cor
 | 4 | `pnpm lint` | Lo que definan los paquetes (hoy nada) |
 | 5 | `pnpm typecheck` | Errores de tipos (genera antes el cliente de Prisma) |
 | 6 | `pnpm build` | Que el código compila |
-| 7 | `pnpm test` | Que las pruebas pasan |
+| 7 | `pnpm test` | Que las pruebas pasan, contra PostgreSQL real (`TEST_DATABASE_URL`) |
 
-La CI ejecuta además un segundo trabajo, **Secrets**, con `sh scripts/gitleaks.sh history`.
+La CI ejecuta además un segundo trabajo, **Secrets**, con `sh scripts/gitleaks.sh history`. El trabajo de calidad arranca su propio PostgreSQL desechable (servicio en `ci.yml`, con la misma imagen que el compose), así que no hace falta nada más en GitHub.
 
 ### 7.6 El grafo de dependencias de Turbo
 
@@ -348,6 +359,10 @@ Por eso en una instalación limpia basta con `pnpm typecheck`, `pnpm build` o `p
 | El commit se rechaza con `subject may not be empty`, `header must not be longer than 100` o similar | El mensaje no cumple Conventional Commits | Reescribirlo: encabezado corto en minúscula y el detalle en un segundo `-m` |
 | El commit se rechaza por gitleaks | Algo parece un secreto, a veces un `curl` con cabecera `Authorization` en un documento | Cambiar el texto (con palabras o un valor de relleno claro); no silenciar la regla |
 | `port is already allocated` al levantar los servicios | Otro programa usa 5432, 6379, 1025 u 8025 | Pararlo o liberar el puerto |
+| Las pruebas fallan con `TEST_DATABASE_URL is not set` | Falta la variable en el `.env`, tiene un error de escritura o hay una variable vacía exportada en la terminal | Revisar la línea del `.env` (debe empezar por `postgresql://`) y, si hace falta, `unset TEST_DATABASE_URL` |
+| Las pruebas fallan con `P1000: Authentication failed` | La contraseña de `TEST_DATABASE_URL` no es la del servidor | Copiar la línea de `DATABASE_URL` y cambiar solo el nombre y la base (`manos_test`) |
+| Las pruebas fallan con `database "manos_test" does not exist` | Falta crear la base de pruebas | El `createdb` de la sección 7.1 |
+| `seed` imprime datos viejos o no encuentra `dist/prisma/seed.js` | El seed ejecuta lo compilado y no se hizo `build` | `pnpm build` y repetir |
 
 ## 8. Cómo mantener este documento
 
