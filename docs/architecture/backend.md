@@ -106,8 +106,9 @@ Deciden si una petición **puede pasar**, antes de mirar sus datos.
 
 | Herramienta | Qué hace | Estado |
 |---|---|---|
-| **Zod 4** | Describe la **forma** de los datos y los valida: tipos, longitudes, formato. Rechaza campos desconocidos para evitar la asignación masiva | Hecho para las variables de entorno (PR 1 y 2); para las peticiones, pendiente (PR 3) |
-| **`ZodValidationPipe`** | El adaptador propio que aplica un esquema de Zod a la entrada de una ruta y responde `400` si no cumple | Pendiente (PR 3) |
+| **Zod 4** | Describe la **forma** de los datos y los valida: tipos, longitudes, formato. Rechaza campos desconocidos para evitar la asignación masiva | Hecho para las variables de entorno (PR 1 y 2); para las peticiones, el pipe está hecho (PR 3a-1) y cada esquema llega con su ruta |
+| **`ZodValidationPipe`** | El adaptador propio que aplica un esquema de Zod a la entrada de una ruta y responde `400 validation_failed`, con un detalle `{ field, code }` por problema | Hecho (PR 3a-1, ver [12](../12-api-conventions.md)) |
+| **`AllExceptionsFilter`** y **`ApiException`** | Todo fallo responde `{ code, message, details }`. Un error inesperado da un `500` genérico y no se filtra al cliente | Hecho (PR 3a-1, ver [12](../12-api-conventions.md)) |
 
 Zod valida **la forma**. Comprobar que un correo no existe ya, o que una contraseña no está en la lista de comunes, es lógica de negocio y vive en los servicios.
 

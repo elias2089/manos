@@ -65,7 +65,7 @@ Crear la aplicación `apps/api` con NestJS 12: un esqueleto que compila, arranca
 | **Controlador (`@Controller`)** | Clase que recibe las peticiones de un grupo de rutas y devuelve la respuesta |
 | **Health check** | Ruta barata que dice "estoy vivo". La consulta el hosting, Docker o un balanceador cada pocos segundos para decidir si reiniciar la aplicación o enviarle tráfico |
 | **Liveness y readiness** | *Liveness*: el proceso responde. *Readiness*: además puede atender trabajo (base de datos y Redis conectados) |
-| **Prefijo global (`setGlobalPrefix`)** | Texto como `v1` que se antepone a todas las rutas. Llegará con el PR 3 |
+| **Prefijo global (`setGlobalPrefix`)** | Texto como `v1` que se antepone a todas las rutas. Llegó con el PR 3a-1 (ver 12) |
 | **Prueba e2e (end-to-end)** | Hace una petición HTTP real a la aplicación en memoria y comprueba la respuesta completa |
 
 ## 3. Qué se hizo, paso a paso
@@ -1027,7 +1027,7 @@ Esperado:
 |---|---|---|
 | Cargar TypeScript con decoradores desde Cucumber | **Riesgo sin resolver**, aplazado de este PR (ver 08, sección 5.13) | **Antes del PR 3** |
 | `X-Powered-By: Express` y demás cabeceras de seguridad | Sin resolver. Lo cubre `helmet` (ver 08, sección 5.11) | Un PR posterior; antes de exponer la API |
-| Prefijo global `v1` | Sin hacer. `/health` quedará fuera con `setGlobalPrefix('v1', { exclude: [...] })` | PR 3 |
+| Prefijo global `v1` | **Hecho** en el PR 3a-1 (ver 12): `/health` queda fuera con `setGlobalPrefix('v1', { exclude: [...] })` | |
 | Un token en la query de la URL (`?token=...`) aparece en los logs | Sin resolver | PR 3 y 4, con los enlaces de verificación y de recuperación |
 | Retención de las direcciones IP que quedan en los logs | Sin decidir | Fase 7 |
 | Excluir `/health` de los logs | Sin hacer: nadie la consulta todavía | Fase 7 |
