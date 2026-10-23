@@ -4,7 +4,8 @@ import { validateEnv } from './env.schema.js';
 
 const SECRET = 'secret-db-password';
 const DATABASE_URL = `postgresql://manos:${SECRET}@127.0.0.1:5432/manos`;
-const validConfig = { NODE_ENV: 'development', DATABASE_URL };
+const WEB_ORIGIN = 'https://manos.example';
+const validConfig = { NODE_ENV: 'development', DATABASE_URL, WEB_ORIGIN };
 
 describe('validateEnv', () => {
   it('accepts a valid configuration and converts the port to a number', () => {
@@ -13,6 +14,7 @@ describe('validateEnv', () => {
     expect(config).toEqual({
       NODE_ENV: 'production',
       DATABASE_URL,
+      WEB_ORIGIN,
       PORT: 4000,
       LOG_LEVEL: 'info',
     });
@@ -62,5 +64,25 @@ describe('validateEnv', () => {
     expect(() => validateEnv(invalid)).toThrow(
       expect.objectContaining({ message: expect.not.stringContaining(SECRET) }),
     );
+  });
+
+  it('requires WEB_ORIGIN', () => {
+    expect(() => validateEnv({ NODE_ENV: 'development', DATABASE_URL })).toThrow('WEB_ORIGIN');
+  });
+
+  it('accepts a local origin with a port', () => {
+    const config = validateEnv({ ...validConfig, WEB_ORIGIN: 'http://localhost:3001' });
+
+    expect(config.WEB_ORIGIN).toBe('http://localhost:3001');
+  });
+
+  it.each([
+    'https://manos.example/',
+    'https://manos.example/app',
+    'ftp://manos.example',
+    'manos.example',
+    '',
+  ])('rejects the invalid web origin "%s"', (origin) => {
+    expect(() => validateEnv({ ...validConfig, WEB_ORIGIN: origin })).toThrow('WEB_ORIGIN');
   });
 });

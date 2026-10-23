@@ -7,6 +7,7 @@ import { Clock } from '../common/clock.js';
 import { ClockModule } from '../common/clock.module.js';
 import { HealthModule } from './health.module.js';
 import { configureApp } from '../app.setup.js';
+import { TEST_APP_OPTIONS } from '../test/test-app-options.js';
 
 describe('GET /health', () => {
   let app: INestApplication;
@@ -20,7 +21,7 @@ describe('GET /health', () => {
       .compile();
 
     app = moduleRef.createNestApplication();
-    configureApp(app);
+    configureApp(app, TEST_APP_OPTIONS);
     await app.init();
   });
 

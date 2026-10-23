@@ -8,6 +8,7 @@ import { configureApp } from '../../app.setup.js';
 import { ApiException } from '../errors/api.exception.js';
 import { ERROR_MESSAGES } from '../errors/error-codes.js';
 import { ZodValidationPipe } from './zod-validation.pipe.js';
+import { TEST_APP_OPTIONS } from '../../test/test-app-options.js';
 
 const signupSchema = z.strictObject({
   email: z.email(),
@@ -62,7 +63,7 @@ describe('ZodValidationPipe', () => {
       }).compile();
 
       app = moduleRef.createNestApplication({ logger: false });
-      configureApp(app);
+      configureApp(app, TEST_APP_OPTIONS);
       await app.init();
     });
 
