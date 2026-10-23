@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Clock } from '../common/clock.js';
 import { ClockModule } from '../common/clock.module.js';
 import { HealthModule } from './health.module.js';
+import { configureApp } from '../app.setup.js';
 
 describe('GET /health', () => {
   let app: INestApplication;
@@ -19,6 +20,7 @@ describe('GET /health', () => {
       .compile();
 
     app = moduleRef.createNestApplication();
+    configureApp(app);
     await app.init();
   });
 
