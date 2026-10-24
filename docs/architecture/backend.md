@@ -79,7 +79,7 @@ Las capas de arriba **conocen** a las de abajo, nunca al revés. Un controlador 
 | Herramienta | Qué hace | Estado |
 |---|---|---|
 | **Express** | El servidor HTTP que atiende las peticiones. Nest se apoya en él | Hecho (PR 1) |
-| **helmet** | Añade cabeceras de seguridad a las respuestas y quita `X-Powered-By: Express` | Pendiente (un PR posterior; antes de exponer la API) |
+| **helmet** | Añade cabeceras de seguridad a las respuestas y quita `X-Powered-By: Express` | Hecho (PR 3a-2, ver [12](../12-api-conventions.md)) |
 
 ### Capa 3. Middleware
 
@@ -89,7 +89,9 @@ Funciones que se ejecutan en **todas** las peticiones, antes de decidir a qué r
 |---|---|---|
 | **nestjs-pino** y **pino-http** | Escriben una línea JSON por petición. Redactan `Authorization`, `Cookie`, `Set-Cookie` y campos como `password` o `token` (ver [10](../10-api-base.md)) | Hecho (PR 1) |
 | **Cookies de NestJS 12** | Leen la cookie de renovación y escriben las de sesión (`HttpOnly`, `Secure`, `SameSite=Lax`) | Pendiente (PR 3) |
-| **Validación de `Origin` y CORS** | Rechazan las peticiones que cambian datos desde un origen no permitido. Es la defensa contra CSRF (ver [09, sección 6.3](../09-phase-1-data-and-auth-design.md)) | Pendiente (PR 3) |
+| **CORS estricto** | Solo `WEB_ORIGIN` puede leer las respuestas y enviar cookies (ver [12](../12-api-conventions.md)) | Hecho (PR 3a-2) |
+| **Validación de `Origin`** | Rechaza con `403 csrf_origin_rejected` las peticiones que cambian datos desde un origen no permitido. Es la defensa contra CSRF (ver [09, sección 6.3](../09-phase-1-data-and-auth-design.md)) | Hecho (PR 3a-2) |
+| **Solo JSON** | Rechaza con `415 unsupported_media_type` un cuerpo que no sea `application/json` en las rutas que cambian datos | Hecho (PR 3a-2) |
 | **Limitador propio sobre ioredis** | Cuenta intentos fallidos por correo y por IP, y responde `429` al pasarse. Si Redis cae, las rutas protegidas **fallan cerradas** | Pendiente (PR 3) |
 
 ### Capa 4. Guards

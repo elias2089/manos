@@ -19,7 +19,7 @@ Los documentos llevan un prefijo numérico: el orden es el de ejecución. Para r
 | [09-phase-1-data-and-auth-design.md](09-phase-1-data-and-auth-design.md) | Diseño de la fase 1: modelo de datos con diagrama y tablas de ejemplo, tokens y sesiones, claves de Redis, CSRF, fechas en UTC y orden de los PRs |
 | [10-api-base.md](10-api-base.md) | Esqueleto de la API con NestJS 12: paquete, dependencias exactas, `tsconfig` para ESM con `nodenext`, configuración, registros con redacción, `Clock` y `/health`, con las pruebas de cada pieza |
 | [11-prisma-and-mailpit.md](11-prisma-and-mailpit.md) | Base de datos y correo local: Mailpit en el compose, Prisma con PostgreSQL, el modelo de datos de 09, la primera migración, los datos iniciales y las pruebas contra la base, también en la CI |
-| [12-api-conventions.md](12-api-conventions.md) | Convenciones de la API: el prefijo `/v1`, el formato de los errores (`{ code, message, details }`) y el pipe de Zod, con la configuración compartida entre la aplicación y las pruebas (en construcción: el PR 3a-2 añade CORS y CSRF) |
+| [12-api-conventions.md](12-api-conventions.md) | Convenciones de la API: el prefijo `/v1`, el formato de los errores (`{ code, message, details }`) y el pipe de Zod, y la protección de las peticiones: `helmet`, CORS estricto, validación de `Origin` y solo JSON (CSRF), con la configuración compartida entre la aplicación y las pruebas |
 
 ## Arquitectura (referencia)
 

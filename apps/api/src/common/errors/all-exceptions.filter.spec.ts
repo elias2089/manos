@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { configureApp } from '../../app.setup.js';
 import { ApiException } from './api.exception.js';
 import { ERROR_MESSAGES } from './error-codes.js';
+import { TEST_APP_OPTIONS } from '../../test/test-app-options.js';
 
 // The API has no business routes yet, so the test brings routes that fail in different ways
 @Controller('boom')
@@ -49,7 +50,7 @@ describe('AllExceptionsFilter', () => {
 
     // The logger is off so the expected 500 does not fill the test output
     app = moduleRef.createNestApplication({ logger: false });
-    configureApp(app);
+    configureApp(app, TEST_APP_OPTIONS);
     await app.init();
   });
 

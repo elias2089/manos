@@ -894,7 +894,7 @@ describe('GET /health', () => {
 - **Reloj de prueba como objeto literal.** Solo hace falta una hora fija. Un segundo `FakeClock` duplicaría el de `clock.spec.ts` sin necesidad.
 - **Cada consulta a `/health` se registra en el log.** Cuando un hosting la consulte cada pocos segundos, convendrá excluirla (`exclude` de `nestjs-pino`). Se decide en la fase 7, cuando haya quien la consulte.
 
-**Pendiente: `X-Powered-By: Express`.** La respuesta lleva esa cabecera, que revela el framework. Se elimina con `helmet` (ver 08, sección 5.11), que añade además otras cabeceras de seguridad. No entra en este PR.
+**`X-Powered-By: Express` (resuelto en el PR 3a-2).** En este PR la respuesta todavía lleva esa cabecera, que revela el framework. `helmet` la quita y añade otras cabeceras de seguridad (ver 12).
 
 ## 4. Alternativas descartadas
 
@@ -1014,7 +1014,7 @@ Esperado:
 - **Pruebas de "no aparece X" que pasan en vacío.** Hay que comprobar también que la línea de log existe (`request completed`, `test event`).
 - **`Nest can't resolve dependencies of the HealthController (?)`.** Se importó `Clock` con `import type`, o la prueba no incluye `ClockModule`.
 - **`Cannot GET /health` con la API real.** Falta importar `HealthModule` en `AppModule`. La prueba no lo detecta porque no usa `AppModule`; lo detecta el `curl`.
-- **`X-Powered-By: Express` en las respuestas.** Revela el framework. Se elimina con `helmet`, pendiente para un PR posterior.
+- **`X-Powered-By: Express` en las respuestas.** Revela el framework. Se eliminó con `helmet` en el PR 3a-2 (ver 12).
 - **Un `curl` con cabecera `Authorization` escrito en el documento activa gitleaks** (regla `curl-auth-header`) aunque el valor sea inventado, y bloquea el commit. Se describe la prueba con palabras y no se silencia la regla.
 - **JSON roto en `package.json`.** Una coma de más o de menos al añadir `scripts`. pnpm lo señala con `ERR_PNPM_JSON_PARSE`.
 - **`nodenext` con `Bundler`.** TypeScript da error si se mezclan. Hay que cambiar `module` y `moduleResolution` a la vez.
@@ -1026,7 +1026,7 @@ Esperado:
 | Punto | Estado | Cuándo se resuelve |
 |---|---|---|
 | Cargar TypeScript con decoradores desde Cucumber | **Riesgo sin resolver**, aplazado de este PR (ver 08, sección 5.13) | **Antes del PR 3** |
-| `X-Powered-By: Express` y demás cabeceras de seguridad | Sin resolver. Lo cubre `helmet` (ver 08, sección 5.11) | Un PR posterior; antes de exponer la API |
+| `X-Powered-By: Express` y demás cabeceras de seguridad | **Hecho** en el PR 3a-2 con `helmet` (ver 12) | |
 | Prefijo global `v1` | **Hecho** en el PR 3a-1 (ver 12): `/health` queda fuera con `setGlobalPrefix('v1', { exclude: [...] })` | |
 | Un token en la query de la URL (`?token=...`) aparece en los logs | Sin resolver | PR 3 y 4, con los enlaces de verificación y de recuperación |
 | Retención de las direcciones IP que quedan en los logs | Sin decidir | Fase 7 |
