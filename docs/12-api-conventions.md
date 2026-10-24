@@ -1,8 +1,8 @@
-# 12. Convenciones de la API: prefijo, errores y validación
+# 12. Convenciones de la API: prefijo, errores, validación y protección de peticiones
 
-PR 3a-1: rama `feat/api-conventions`. Cambios en `apps/api/src/` (`app.setup.ts`, `main.ts`, `common/errors/` y `common/pipes/`). El PR 3a-2 (`feat/csrf-protection`) añadirá a este documento las cabeceras de seguridad, CORS y la protección contra CSRF.
+PR 3a-1: rama `feat/api-conventions`. Cambios en `apps/api/src/` (`app.setup.ts`, `main.ts`, `common/errors/` y `common/pipes/`).
 
-> **Estado: en construcción.** Hoy cubre el prefijo `/v1`, el formato de los errores y el pipe de Zod. Al cerrar el PR 3a-2 se completan las secciones de CORS y de CSRF, y se quita este aviso.
+PR 3a-2: rama `feat/csrf-protection`. Cambios en `app.setup.ts`, `config/env.schema.ts`, `common/errors/error-codes.ts` y `common/middleware/`: cabeceras de seguridad, CORS estricto y la protección contra CSRF.
 
 ## 1. Objetivo
 
@@ -11,6 +11,8 @@ Que la API tenga sus reglas comunes **antes** de que exista cualquier ruta de ne
 - Las rutas de negocio viven bajo `/v1`; `/health` queda fuera.
 - **Todo fallo** responde con la misma forma: `{ code, message, details }`. El cliente se apoya en el `code` estable, nunca en el texto.
 - Un pipe aplica un esquema de Zod a la entrada de una ruta y responde `400` si no se cumple.
+- Las respuestas llevan cabeceras de seguridad y no revelan el framework.
+- Solo la aplicación web (`WEB_ORIGIN`) puede leer las respuestas y enviar cookies, y una petición que cambia datos desde otro sitio se rechaza.
 - La aplicación real y las pruebas usan **la misma** configuración HTTP.
 
 ## 2. Glosario
@@ -26,6 +28,14 @@ Que la API tenga sus reglas comunes **antes** de que exista cualquier ruta de ne
 | **Pipe** | Clase que Nest ejecuta sobre la entrada de una ruta (cuerpo, consulta, parámetros) antes del código de la ruta: transforma el valor o lo rechaza |
 | **Esquema estricto (`z.strictObject`)** | Esquema de Zod que rechaza los campos que no lista. Es la defensa contra la asignación masiva (09, sección 6.1) |
 | **`http-errors`** | Librería que usan Express y *body-parser* para sus errores: llevan un `statusCode` numérico pero no son excepciones de Nest |
+| **Origen (*origin*)** | Esquema, servidor y puerto de una página, como `https://manos.example`. Sin ruta y sin barra final |
+| **Cabecera `Origin`** | La envía el navegador en las peticiones entre sitios y una página no puede falsearla. Es la base de la defensa contra CSRF |
+| **CORS** | Mecanismo con el que el servidor dice a qué orígenes deja leer sus respuestas y enviar cookies. Lo aplica el navegador |
+| **Petición previa (*preflight*)** | Un `OPTIONS` que el navegador envía antes de una petición entre sitios para preguntar si está permitida |
+| **CSRF** | *Cross-site request forgery*: una página maliciosa hace que el navegador de la víctima llame a nuestra API, y el navegador adjunta las cookies solo |
+| **`helmet`** | Librería que añade cabeceras de seguridad a las respuestas y quita `X-Powered-By` |
+| **Middleware** | Función que se ejecuta en toda petición, antes de saber qué ruta es |
+| **Métodos que cambian datos** | `POST`, `PATCH`, `PUT` y `DELETE` (`UNSAFE_METHODS`). `GET` nunca debe cambiar datos |
 
 ## 3. Qué se hizo, paso a paso
 
@@ -104,6 +114,61 @@ Otras decisiones:
 
 El pipe se crea a mano en cada uso, así que no necesita inyección de dependencias. Se escribió propio y no con `nestjs-zod` porque este no declara compatibilidad con Nest 12 (08, sección 5.3).
 
+### Paso 4. Cabeceras de seguridad, CORS y `WEB_ORIGIN`
+
+`configureApp(app, options)` recibe ahora las opciones de la aplicación. La única hoy es `webOrigin`: el origen de la aplicación web. `main.ts` la lee de la variable de entorno `WEB_ORIGIN` y las pruebas usan `TEST_APP_OPTIONS` (`src/test/test-app-options.ts`, con `https://manos.example`, el origen de los archivos de comportamiento).
+
+| Pieza | Qué hace |
+|---|---|
+| `WEB_ORIGIN` en `config/env.schema.ts` | **Obligatoria.** Debe ser un origen canónico: `http` o `https`, sin ruta y sin barra final, igual a como lo envía el navegador. Si no, la API no arranca |
+| `app.use(helmet())` | Añade las cabeceras de seguridad (por ejemplo `X-Content-Type-Options: nosniff`) y quita `X-Powered-By`. Versión exacta `8.3.0` |
+| `app.enableCors(...)` | Solo `WEB_ORIGIN` recibe permiso. Métodos `GET`, `POST`, `PATCH`, `PUT` y `DELETE`; cabecera permitida `Content-Type` |
+
+Las credenciales (cookies) se deciden **en cada petición**: la configuración de CORS es una función que devuelve `credentials: true` solo si la cabecera `Origin` es igual a `WEB_ORIGIN`. Con una configuración fija, la librería enviaría el permiso a cualquier origen que lo pida.
+
+| Decisión | Resultado | Motivo |
+|---|---|---|
+| Lista de un solo origen | La cabecera `Access-Control-Allow-Origin` solo se envía si el origen coincide | Un origen ajeno no recibe ninguna cabecera de permiso |
+| Tipo `CorsAnswer` propio | Describe solo lo que se responde | Nest 12.1.3 no exporta sus tipos de CORS |
+| `WEB_ORIGIN` obligatoria, sin valor por defecto | La API falla al arrancar sin ella | Un valor por defecto permisivo abriría CORS sin que nadie lo note |
+
+Las pruebas, en `app.setup.spec.ts`, comprueban las cabeceras y que `X-Powered-By` desaparece; que una petición previa desde `WEB_ORIGIN` recibe permiso y credenciales; y que desde `https://evil.example` no recibe ninguna de las dos.
+
+### Paso 5. Validación de `Origin` (CSRF)
+
+CORS lo aplica el navegador y **no impide que la petición llegue al servidor**: solo impide que la página lea la respuesta. Una petición que cambia datos podría ejecutarse igual. Por eso el servidor comprueba el origen por su cuenta.
+
+`common/middleware/origin.middleware.ts` exporta `createOriginMiddleware(webOrigin)`. Solo mira los métodos que cambian datos (`common/middleware/unsafe-methods.ts`):
+
+| Petición | Resultado |
+|---|---|
+| `Origin` igual a `WEB_ORIGIN` | Pasa |
+| `Origin` presente y distinto (también `null`, con barra final o con un servidor parecido) | `403 csrf_origin_rejected` |
+| Sin `Origin` y sin cookie de sesión (`access` o `refresh`) | Pasa: es una herramienta como `curl` o una prueba, no un navegador con sesión |
+| Sin `Origin` y con cookie de sesión | `403 csrf_origin_rejected` |
+
+La comparación es exacta, sin tolerar una barra final ni un servidor más largo. La cookie se busca en la cabecera `Cookie` sin analizarla con una librería: aún no hace falta. Los nombres `access` y `refresh` son los que usará el PR 3d. El rechazo se escribe en el registro (`csrf.origin_rejected`) con el origen recortado a 200 caracteres, porque lo controla quien ataca.
+
+Se registra con `app.use(...)` **después de `enableCors`**, para que las peticiones previas ya estén respondidas, y antes del enrutado, para no dejar ninguna ruta sin cubrir. El error pasa por `next(new ApiException(403, 'csrf_origin_rejected'))` y llega al filtro global: la respuesta tiene la forma de siempre. [Verificado en `routes-resolver.js` de Nest 12.1.3: `registerExceptionHandler`.]
+
+Las pruebas (`origin.middleware.spec.ts`) usan un controlador propio con un contador de peticiones atendidas, para demostrar que un rechazo **no llega a la ruta**.
+
+### Paso 6. Solo JSON
+
+Un formulario clásico de otro sitio solo puede enviar `application/x-www-form-urlencoded`, `multipart/form-data` o `text/plain` sin que el navegador pregunte antes (CORS). Aceptar solo JSON en las rutas que cambian datos cierra ese camino (09, sección 6.3).
+
+`common/middleware/json-only.middleware.ts` exporta `jsonOnlyMiddleware`. Responde `415 unsupported_media_type` cuando se cumplen **las tres** condiciones:
+
+| Condición | Cómo se decide |
+|---|---|
+| El método cambia datos | `POST`, `PATCH`, `PUT` o `DELETE` |
+| La petición lleva cuerpo | `Content-Length` mayor que 0, o alguna cabecera `Transfer-Encoding` |
+| El tipo no es JSON | La parte anterior a `;` de `Content-Type`, sin espacios y en minúsculas, no es `application/json` |
+
+Una petición sin cuerpo pasa aunque su `Content-Type` sea otro. Un cuerpo sin `Content-Type` se rechaza: *body-parser* lo ignoraría y dejaría `request.body` vacío sin avisar. `application/json; charset=utf-8` pasa; `application/json-evil` no.
+
+Nest registra sus lectores de cuerpo dentro de `init()`, es decir, **después** de los `app.use` de `configureApp()`. Así el rechazo ocurre antes de analizar el cuerpo. [Verificado en `nest-application.js` y `express-adapter.js` de Nest 12.1.3.] El orden de los middleware es: `Origin`, solo JSON, lectores de cuerpo.
+
 ## 4. Alternativas descartadas
 
 | Alternativa | Por qué no |
@@ -119,6 +184,15 @@ El pipe se crea a mano en cada uso, así que no necesita inyección de dependenc
 | `nestjs-zod` | No declara compatibilidad con Nest 12 |
 | Devolver el valor original en el pipe | Los valores por defecto y las conversiones no llegarían a la ruta |
 | Un mecanismo genérico de `405` ahora | No hay ninguna ruta que cambie datos con la que probarlo |
+| CORS con `origin: true` o `*` | Permitiría a cualquier sitio leer las respuestas |
+| `credentials: true` fijo en CORS | La librería lo enviaría a cualquier origen que lo pida |
+| Confiar solo en CORS contra CSRF | CORS no impide que la petición llegue al servidor, solo que la página lea la respuesta |
+| Exigir siempre `Origin` | Rompería `curl`, las pruebas y las herramientas que no son un navegador |
+| Aceptar cualquier petición sin `Origin` | Un navegador con sesión que no lo envía pasaría la defensa |
+| Aceptar `Origin` por prefijo o ignorando la barra final | Un servidor como `https://manos.example.evil.example` pasaría |
+| Una librería para leer las cookies en este PR | Solo hace falta saber si existe `access` o `refresh`; las cookies llegan en el PR 3d |
+| Comprobar el origen en un guard en cada ruta | Habría que acordarse de ponerlo en cada ruta nueva; el middleware cubre todas |
+| Dejar que los lectores de cuerpo rechacen el tipo | Un formulario ya se habría analizado, y el código de error sería el de la librería |
 
 ## 5. Cómo verificar
 
@@ -132,7 +206,8 @@ pnpm -F @manos/api build && pnpm -F @manos/api start
 
 Esperado:
 
-- Las pruebas pasan: 11 archivos y 55 pruebas. `lint:root` muestra un único aviso, el de la expresión regular de `seed-data.spec.ts`, anterior a este PR.
+- Las pruebas pasan: 13 archivos y 91 pruebas. `lint:root` no debe mostrar avisos nuevos: el de la expresión regular de `seed-data.spec.ts` es anterior a este PR.
+- La variable `WEB_ORIGIN` debe estar en el `.env` local (ver `.env.example`).
 - Con la API arrancada, en otra terminal:
 
 ```bash
@@ -142,7 +217,17 @@ curl -s -X POST localhost:3000/v1/x -H 'content-type: application/json' -d '{"a"
 ```
 
 - La primera responde `200` con `{"status":"ok", ...}`. La segunda, `404` con `{"code":"not_found","message":"No encontramos lo que buscas","details":[]}`. La tercera, `{"code":"bad_request","message":"La petición no es válida","details":[]}`.
-- La respuesta de `/health` todavía lleva `X-Powered-By: Express`: la quita `helmet` en el PR 3a-2.
+- La respuesta de `/health` ya no lleva `X-Powered-By`.
+- Protección de peticiones, con la API arrancada y `WEB_ORIGIN` igual a `http://localhost:3001`:
+
+```bash
+curl -s -X POST localhost:3000/v1/x -H 'content-type: application/json' -H 'origin: https://evil.example' -d '{}'
+curl -s -X POST localhost:3000/v1/x -H 'content-type: application/json' -H 'cookie: access=x' -d '{}'
+curl -s -X POST localhost:3000/v1/x -d 'a=1'
+curl -s -X POST localhost:3000/v1/x -H 'content-type: application/json' -H 'origin: http://localhost:3001' -d '{}'
+```
+
+- Las dos primeras responden `403` con `"code":"csrf_origin_rejected"`. La tercera, `415` con `"code":"unsupported_media_type"`. La cuarta pasa las protecciones y da `404` porque la ruta no existe todavía.
 
 ## 6. Trampas conocidas
 
@@ -154,6 +239,12 @@ curl -s -X POST localhost:3000/v1/x -H 'content-type: application/json' -d '{"a"
 - **`const [{ x }] = await ...`** no compila con `noUncheckedIndexedAccess` (ver 11); aquí vale lo mismo para cualquier lectura con índice.
 - **`ErrorCode` sin mensaje.** Añadir un código nuevo exige su texto en `ERROR_MESSAGES`: el compilador lo comprueba.
 - **Detalle con `field` vacío.** No es un fallo: es un problema del objeto entero, como un campo sobrante.
+- **`WEB_ORIGIN` con barra final** (`https://manos.example/`). El navegador envía el origen sin ella; la variable se rechaza al arrancar para que no coincida nunca por error.
+- **El middleware de `Origin` antes de `enableCors`.** Rechazaría las peticiones previas (`OPTIONS`) que el navegador envía primero.
+- **Un `GET` que cambia datos.** Ninguna de estas protecciones mira los `GET`: la regla es que nunca cambien nada.
+- **Una petición con cuerpo y sin `Content-Type` en una prueba.** Da `415`: hay que indicar el tipo.
+- **Dos `app.use` en otro orden.** Si los lectores de cuerpo se registraran antes (con `useBodyParser`, por ejemplo), un formulario se analizaría antes de rechazarse.
+- **Acceso dinámico `objeto[variable]` en las pruebas.** El linter lo marca (`security/detect-object-injection`); se evita con una tabla de funciones.
 
 ## 7. Pendientes
 
@@ -161,8 +252,12 @@ curl -s -X POST localhost:3000/v1/x -H 'content-type: application/json' -d '{"a"
 |---|---|---|
 | Prefijo global `/v1` con `/health` fuera | **Hecho** (paso 1) | |
 | Formato de error con código estable | **Hecho** (paso 2) | |
-| `X-Powered-By: Express` y demás cabeceras de seguridad | Pendiente: lo cubre `helmet` | PR 3a-2 |
-| CORS estricto y validación de `Origin` | Pendiente | PR 3a-2 |
+| `X-Powered-By: Express` y demás cabeceras de seguridad | **Hecho** (paso 4, `helmet`) | |
+| CORS estricto y validación de `Origin` | **Hecho** (pasos 4 y 5) | |
+| Solo JSON (`415`) | **Hecho** (paso 6) | |
+| Atributos de las cookies de sesión (`HttpOnly`, `Secure`, `SameSite=Lax`) | Pendiente: aún no hay cookies | PR 3d |
+| Un `GET` nunca cambia datos | Regla vigente; se comprobará en cada ruta de lectura | PR 4 en adelante |
+| Cabecera `Content-Security-Policy` propia | Pendiente: `helmet` aplica la de por defecto | Cuando exista el cliente web |
 | `405` para un método no permitido | Decisión aplazada: hoy es `404` | PR 4, con `/v1/me/cancel` |
 | Mensajes de error en otros idiomas | Pendiente: hoy solo español de México | Con la característica de idioma |
 | Aviso `security/detect-unsafe-regex` en `seed-data.spec.ts` | Anterior a este PR; la expresión es segura en la práctica | Una limpieza aparte |
