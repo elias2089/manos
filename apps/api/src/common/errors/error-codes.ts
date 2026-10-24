@@ -10,6 +10,7 @@ export const ERROR_MESSAGES = {
   too_many_requests: 'Demasiados intentos. Inténtalo más tarde',
   internal_error: 'Ocurrió un error inesperado',
   service_unavailable: 'El servicio no está disponible por ahora',
+  csrf_origin_rejected: 'La petición no viene de un origen permitido',
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_MESSAGES;

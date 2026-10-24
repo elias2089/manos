@@ -3,6 +3,8 @@ import { HttpAdapterHost } from '@nestjs/core';
 import helmet from 'helmet';
 
 import { AllExceptionsFilter } from './common/errors/all-exceptions.filter.js';
+import { createOriginMiddleware } from './common/middleware/origin.middleware.js';
+import { jsonOnlyMiddleware } from './common/middleware/json-only.middleware.js';
 
 export interface AppOptions {
   /** The only origin that may read the responses and send cookies, like https://manos.example */
@@ -39,7 +41,10 @@ export function configureApp(app: INestApplication, options: AppOptions): void {
       });
     },
   );
-
+  // After CORS so preflight requests are already answered; before routing so no route is missed
+  app.use(createOriginMiddleware(options.webOrigin));
+  // Before the body parsers (Nest adds them in init), so a form is rejected, never parsed
+  app.use(jsonOnlyMiddleware);
   // /health is infrastructure, not part of the business API, so it stays outside the version
   app.setGlobalPrefix('v1', { exclude: [{ path: 'health', method: RequestMethod.GET }] });
   app.useGlobalFilters(new AllExceptionsFilter(app.get(HttpAdapterHost)));
