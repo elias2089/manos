@@ -8,7 +8,7 @@ name: manos
 services:
   postgres:
     # Tag and digest: the digest makes the image immutable, the tag keeps it readable
-    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
     restart: unless-stopped
     environment:
       # ":?" makes compose fail with this message when the variable is missing,
@@ -58,7 +58,7 @@ services:
   mailpit:
     # Test mail server: it receives every email and delivers none.
     # Read the messages at http://127.0.0.1:8025
-    image: axllent/mailpit:v1.31.6@sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387
+    image: axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498
     restart: unless-stopped
     ports:
       # SMTP: where the API sends mail
