@@ -18,10 +18,10 @@
     "seed": "node --env-file-if-exists=../../.env dist/prisma/seed.js"
   },
   "dependencies": {
-    "@nestjs/common": "12.2.0",
+    "@nestjs/common": "12.3.2",
     "@nestjs/config": "12.0.1",
-    "@nestjs/core": "12.2.0",
-    "@nestjs/platform-express": "12.2.0",
+    "@nestjs/core": "12.3.2",
+    "@nestjs/platform-express": "12.3.2",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
     "helmet": "8.3.0",
@@ -34,8 +34,8 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@nestjs/testing": "12.2.0",
-    "@swc/core": "1.16.18",
+    "@nestjs/testing": "12.3.2",
+    "@swc/core": "1.16.20",
     "@types/node": "26.6.5",
     "@types/pg": "8.23.1",
     "@types/supertest": "7.2.1",
